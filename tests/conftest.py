@@ -70,6 +70,10 @@ class Screen:
                 self._results.pop(msg["req"]).set_result(msg)
                 continue
             self.events.append(msg)
+            if msg.get("type") == "hello":
+                # The state at connection counts as a link state: on a fast machine the service is
+                # already ready before the screen connects, and no later link event comes.
+                self.events.append({"type": "link", "state": msg.get("state"), "from_hello": True})
 
     async def op(self, op: str, **fields: Any) -> Dict[str, Any]:
         self._n += 1

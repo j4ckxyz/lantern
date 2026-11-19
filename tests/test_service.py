@@ -163,6 +163,9 @@ def test_older_messages_page_in(run, short_tmp, desk_ctx):
             for i in range(130):
                 fake._add("bot-1", "user" if i % 2 == 0 else "assistant", f"message {i}")
             await screen.wait("link", where=lambda e: e["state"] == "ready")
+            # The main chat may already be open from before the messages were added: leave and
+            # come back, so it loads afresh.
+            await screen.op("chat.new")
             view = (await screen.op("chat.open", profile="default"))["view"]
             assert len(view["messages"]) == 120 and view["has_more"]
             assert view["messages"][-1]["text"] == "message 129"
