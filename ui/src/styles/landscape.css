@@ -1,0 +1,519 @@
+/* The screen's shell in both orientations, and everything that changes when it is landscape
+   (the desk's normal way round: 640x360 CSS pixels at scale 2). In landscape the conversation
+   gets the full height; who, what is happening and the actions move to a panel on the left. */
+
+.main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.qr-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* -- the panel -------------------------------------------------------------------------- */
+
+.presence {
+  display: none;
+}
+
+[data-layout='landscape'] {
+  --panel: 208px;
+}
+
+[data-layout='landscape'] .app {
+  flex-direction: row;
+}
+
+[data-layout='landscape'] .presence {
+  flex: none;
+  width: var(--panel);
+  display: flex;
+  flex-direction: column;
+  padding: 10px 10px 12px 12px;
+  background: color-mix(in srgb, var(--bg-raised) 70%, transparent);
+  border-right: 1px solid var(--line);
+}
+
+.p-who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 64px;
+  padding: 6px 6px 6px 4px;
+  margin: 0 -4px;
+  border-radius: 18px;
+  text-align: left;
+}
+
+.p-who:active {
+  background: var(--surface);
+}
+
+.p-avatar {
+  position: relative;
+  flex: none;
+  display: grid;
+  border-radius: 50%;
+  transition: opacity 300ms, filter 300ms;
+}
+
+.p-avatar::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  transition: border-color 300ms;
+}
+
+.presence.working .p-avatar::after {
+  border-color: var(--accent-soft);
+  border-top-color: var(--accent);
+  animation: spin 1.3s linear infinite;
+}
+
+.presence.waiting .p-avatar::after {
+  border-color: var(--warning);
+}
+
+.presence.away .p-avatar {
+  opacity: 0.55;
+  filter: saturate(0.3);
+}
+
+.p-names {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.p-name {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--fs-name);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.p-name span,
+.p-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.p-name svg {
+  flex: none;
+  color: var(--text-2);
+}
+
+.p-title {
+  font-size: var(--fs-meta);
+  color: var(--text-2);
+}
+
+.p-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 2px;
+  overflow: hidden;
+}
+
+/* Idle: the time, large enough to read across a desk. */
+.p-clock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: fade 400ms ease-out;
+}
+
+.p-time {
+  font-size: 54px;
+  font-weight: 500;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.p-date {
+  font-size: var(--fs-small);
+  line-height: 1.35;
+  color: var(--text-2);
+}
+
+/* Working: what Hermes is doing, tool by tool, and a way to stop it. */
+.p-work {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: fade 200ms ease-out;
+}
+
+.p-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.p-status span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.p-tools {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.p-tools li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  font-size: var(--fs-meta);
+  color: var(--text-3);
+  overflow: hidden;
+}
+
+.p-tools li span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.p-tools li svg {
+  flex: none;
+}
+
+.p-tools li.running {
+  color: var(--text);
+}
+
+.p-tools li.done svg {
+  color: var(--success);
+}
+
+.p-tools li.failed svg {
+  color: var(--danger);
+}
+
+.p-tools .bar {
+  position: absolute;
+  left: 22px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  transition: width 300ms var(--ease);
+}
+
+.p-chip {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 20px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  position: relative;
+}
+
+.p-chip::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+
+.p-chip:active {
+  background: var(--surface-3);
+}
+
+/* Connecting, offline and starting up. */
+.p-line {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-small);
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.p-line strong {
+  font-size: var(--fs-body);
+  line-height: 1.3;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.p-line.warn strong {
+  color: var(--warning);
+}
+
+.p-line .p-chip {
+  margin-top: 12px;
+}
+
+.p-progress {
+  position: relative;
+  height: 2px;
+  margin-top: 14px;
+  border-radius: 1px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.p-progress::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: slide 1.4s var(--ease) infinite;
+}
+
+.p-actions {
+  flex: none;
+  display: flex;
+  gap: 8px;
+}
+
+.p-act {
+  height: var(--hit);
+  min-width: var(--hit);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  transition: background 120ms;
+}
+
+.p-act:first-child {
+  flex: 1;
+}
+
+.p-act:active {
+  background: var(--surface-2);
+}
+
+.p-act:disabled {
+  opacity: 0.4;
+}
+
+/* -- the conversation beside it --------------------------------------------------------- */
+
+[data-layout='landscape'] .scroller {
+  padding: 10px 20px 16px;
+}
+
+[data-layout='landscape'] .dock {
+  padding: 4px 12px 10px;
+}
+
+[data-layout='landscape'] .composer textarea {
+  max-height: calc(26px * 3 + 22px);
+}
+
+[data-layout='landscape'] .statusline {
+  margin-top: 8px;
+}
+
+/* The panel already says what is happening; the reply itself only shows that it is alive. */
+[data-layout='landscape'] .msg-agent.live .tools,
+[data-layout='landscape'] .msg-agent.live .activity-status span:last-child {
+  display: none;
+}
+
+[data-layout='landscape'] .msg-agent.live .activity {
+  margin: 6px 0 8px;
+}
+
+/* An approval or a question replaces the message box until it is answered (Stop is in the panel). */
+[data-layout='landscape'] .dock.has-prompt .composer {
+  display: none;
+}
+
+[data-layout='landscape'] .prompt {
+  padding: 12px 14px;
+}
+
+[data-layout='landscape'] .prompt-command {
+  max-height: 100px;
+  margin-bottom: 10px;
+}
+
+[data-layout='landscape'] .toasts {
+  top: 10px;
+  left: calc(var(--panel) + 12px);
+}
+
+/* -- sheets become a drawer from the panel's side, the QR code a dialog ------------------- */
+
+[data-layout='landscape'] .sheet {
+  top: 0;
+  right: auto;
+  width: min(392px, 100%);
+  max-height: none;
+  height: 100%;
+  padding-top: 6px;
+  border-radius: 0 24px 24px 0;
+  border-top: 0;
+  border-right: 1px solid var(--line);
+  animation: drawer 260ms var(--ease);
+}
+
+[data-layout='landscape'] .sheet-grip {
+  display: none;
+}
+
+[data-layout='landscape'] .sheet.center {
+  inset: 0;
+  margin: auto;
+  width: min(560px, calc(100% - 40px));
+  height: fit-content;
+  max-height: calc(100% - 24px);
+  padding-top: 8px;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  animation: pop 220ms var(--ease);
+}
+
+[data-layout='landscape'] .qr {
+  flex-direction: row;
+  align-items: center;
+  gap: 22px;
+  padding: 0 4px 8px;
+  text-align: left;
+}
+
+[data-layout='landscape'] .qr-code {
+  flex: none;
+  width: 212px;
+  height: 212px;
+  padding: 12px;
+}
+
+[data-layout='landscape'] .qr-text {
+  align-items: flex-start;
+  gap: 10px;
+}
+
+@keyframes drawer {
+  from {
+    transform: translateX(-32px);
+    opacity: 0;
+  }
+}
+
+@keyframes pop {
+  from {
+    transform: scale(0.97);
+    opacity: 0;
+  }
+}
+
+/* -- setup and sign-in: the explanation beside the form ------------------------------------ */
+
+[data-layout='landscape'] .gate {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  column-gap: 36px;
+  align-items: center;
+  padding: 20px 32px;
+}
+
+[data-layout='landscape'] .gate h1 {
+  font-size: 24px;
+}
+
+[data-layout='landscape'] .gate .server-chip {
+  margin-bottom: 0;
+}
+
+[data-layout='landscape'] .gate form {
+  gap: 10px;
+}
+
+[data-layout='landscape'] .welcome {
+  padding: 12px 12px 24px;
+}
+
+/* Once the reply has words, or Hermes is waiting on you, the panel carries the activity alone. */
+[data-layout='landscape'] .msg-agent.live:has(.md) .activity,
+[data-layout='landscape'] .msg-agent.live .activity:has(.held) {
+  display: none;
+}
+
+.gate-change {
+  display: block;
+  min-height: 40px;
+  margin-top: 6px;
+  color: var(--accent);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+
+/* Tool names get two lines in the panel rather than being cut short. */
+.p-tools li {
+  align-items: flex-start;
+  padding: 5px 0 6px;
+  min-height: 0;
+  line-height: 1.35;
+}
+
+.p-tools li svg {
+  margin-top: 2px;
+}
+
+.p-tools li span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.p-tools .bar {
+  bottom: 0;
+}
+
+/* On a wider landscape screen (a laptop during development), keep lines a readable length. */
+[data-layout='landscape'] .chat-inner,
+[data-layout='landscape'] .dock {
+  width: 100%;
+  max-width: 720px;
+  margin-inline: auto;
+}

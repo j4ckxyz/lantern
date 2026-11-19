@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Lantern
+Description=A quiet navy screen with a slowly pulsing light while the desk starts.
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/lantern
+ScriptFile=/usr/share/plymouth/themes/lantern/lantern.script

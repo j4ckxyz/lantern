@@ -1,0 +1,198 @@
+/* The ambient light. The screen is true black, so its edges vanish into the display's black glass. Hermes's
+   presence is a soft light behind the panel and the avatar that follows its state: a dim navy at
+   rest, a brighter blue that breathes while it works, amber when it needs you, almost nothing
+   when it is away. Every light fades out well inside the screen edges.
+
+   The four lights are stacked layers, one per state, and a change of state only crossfades their
+   opacity; the breathing is a slow transform. Nothing repaints a gradient while it moves. */
+
+/* -- the lights (landscape, where the panel is) --------------------------------------------- */
+
+/* One light: a small halo hugging the avatar, and a wider field behind the panel that reaches a
+   little way into the conversation. Both end at least 14 px inside the top, left and bottom
+   edges, and the field stops 60 px into the conversation. */
+:root[data-layout='landscape'] .app {
+  position: relative;
+  isolation: isolate;
+}
+
+:root[data-layout='landscape'] .app::before,
+:root[data-layout='landscape'] .app::after,
+:root[data-layout='landscape'] .main::before,
+:root[data-layout='landscape'] .main::after {
+  --c: var(--aura-idle);
+  --a: var(--aura-idle-a);
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  left: 0;
+  width: calc(var(--panel) + 60px);
+  height: 100%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 900ms ease;
+  background:
+    radial-gradient(
+      circle 40px at 40px 46px,
+      rgba(var(--c), var(--a)) 0,
+      rgba(var(--c), var(--a)) 52%,
+      rgba(var(--c), calc(var(--a) * 0.45)) 70%,
+      rgba(var(--c), calc(var(--a) * 0.12)) 86%,
+      rgba(var(--c), 0) 100%
+    ),
+    radial-gradient(
+      ellipse 114px 154px at 128px 52%,
+      rgba(var(--c), calc(var(--a) * 0.8)) 0,
+      rgba(var(--c), calc(var(--a) * 0.52)) 34%,
+      rgba(var(--c), calc(var(--a) * 0.22)) 64%,
+      rgba(var(--c), calc(var(--a) * 0.06)) 86%,
+      rgba(var(--c), 0) 100%
+    );
+}
+
+:root[data-layout='landscape'] .app::after {
+  --c: var(--aura-work);
+  --a: var(--aura-work-a);
+}
+
+:root[data-layout='landscape'] .main::before {
+  --c: var(--aura-wait);
+  --a: var(--aura-wait-a);
+}
+
+:root[data-layout='landscape'] .main::after {
+  --c: var(--aura-away);
+  --a: var(--aura-away-a);
+}
+
+:root[data-layout='landscape'] .app:has(.presence.idle)::before,
+:root[data-layout='landscape'] .app:has(.presence.working)::after,
+:root[data-layout='landscape'] .app:has(.presence.waiting) .main::before,
+:root[data-layout='landscape'] .app:has(.presence.away) .main::after {
+  opacity: 1;
+}
+
+/* Working: a second, brighter field over the first breathes slowly, drawing in and back out
+   about its own centre. It holds no halo, so the light round the avatar stays put. */
+:root[data-layout='landscape'] .presence::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  left: 0;
+  width: calc(var(--panel) + 60px);
+  height: 100%;
+  pointer-events: none;
+  opacity: 0;
+  transform-origin: 128px 52%;
+  transition: opacity 900ms ease;
+  background: radial-gradient(
+    ellipse 104px 140px at 128px 52%,
+    rgba(var(--aura-work), var(--aura-work-boost)) 0,
+    rgba(var(--aura-work), calc(var(--aura-work-boost) * 0.6)) 36%,
+    rgba(var(--aura-work), calc(var(--aura-work-boost) * 0.2)) 68%,
+    rgba(var(--aura-work), 0) 100%
+  );
+}
+
+:root[data-layout='landscape'] .presence.working::before {
+  opacity: 1;
+  will-change: transform;
+  animation: aura-breathe 4.8s ease-in-out infinite alternate;
+}
+
+@keyframes aura-breathe {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(0.78);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-layout='landscape'] .presence.working::before {
+    animation: none;
+  }
+
+  :root[data-layout='landscape'] .app::before,
+  :root[data-layout='landscape'] .app::after,
+  :root[data-layout='landscape'] .main::before,
+  :root[data-layout='landscape'] .main::after,
+  :root[data-layout='landscape'] .presence::before {
+    transition-duration: 200ms;
+  }
+}
+
+/* -- the panel: no box of its own, the light is its shape ----------------------------------- */
+
+:root[data-layout='landscape'] .presence {
+  padding: 14px 12px 14px 16px;
+  background: transparent;
+  border-right: 1px solid;
+  border-image: linear-gradient(to bottom, transparent 15%, var(--line) 40%, var(--line) 60%, transparent 85%) 1;
+}
+
+/* The conversation fades in from black a couple of pixels below the top edge, not at it, so a line
+   scrolled under the edge never lights the glass. */
+:root .scroller {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent 2px, #000 18px, #000 calc(100% - 10px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, transparent 2px, #000 18px, #000 calc(100% - 10px), transparent 100%);
+}
+
+/* Quiet text in the panel is lifted a little so it keeps 4.5:1 over the brightest light. */
+:root:not([data-theme='light']) .presence {
+  --text-3: #9ca2cc;
+}
+
+:root .p-act {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+:root .p-act:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+:root[data-theme='light'] .p-act {
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+/* -- the place to talk ------------------------------------------------------------------------ */
+
+:root:not([data-theme='light']) .composer {
+  border-color: rgba(150, 160, 255, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+:root:not([data-theme='light']) .composer:focus-within {
+  border-color: rgba(150, 160, 255, 0.36);
+}
+
+/* The question or approval carries the same amber as the light behind the panel. */
+:root .prompt {
+  border-color: color-mix(in srgb, var(--warning) 42%, transparent);
+}
+
+/* -- sheets: black drawers whose edge fades out before the top and bottom of the glass ---------- */
+
+:root:not([data-theme='light'])[data-layout='landscape'] .sheet:not(.center) {
+  border-right-color: transparent;
+  background:
+    linear-gradient(to bottom, transparent 10%, var(--line-strong) 34%, var(--line-strong) 66%, transparent 90%) right / 1px 100% no-repeat,
+    radial-gradient(ellipse 128px 96px at 150px 120px, rgba(var(--aura-idle), 0.22), rgba(var(--aura-idle), 0) 100%),
+    #000;
+}
+
+:root:not([data-theme='light']) .field {
+  background: #07081a;
+  border-color: rgba(150, 160, 255, 0.3);
+}
+
+/* -- setup and sign-in: the same calm light behind the explanation ------------------------- */
+
+:root:not([data-theme='light'])[data-layout='landscape'] .gate {
+  background: radial-gradient(ellipse 170px 140px at 28% 50%, rgba(var(--aura-idle), 0.34), rgba(var(--aura-idle), 0.12) 60%, rgba(var(--aura-idle), 0) 100%), #000;
+}

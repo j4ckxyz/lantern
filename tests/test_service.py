@@ -1,317 +1,301 @@
-"""The local service and the app-facing client: ``hermlet run`` + ``hermlet.connect()``."""
+"""The service end to end: the screen's WebSocket, the bridge's HTTP, and a fake Hermes."""
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
-import socket
-import threading
-import time
+import urllib.error
+import urllib.request
 
 import pytest
 
-from conftest import dev_hub, until
-from hermlet import HermletError, config, connect
-from hermlet.service import Service
+from conftest import until
 
 
-@contextlib.asynccontextmanager
-async def service_for(url, home):
-    home.mkdir(parents=True, exist_ok=True)
-    config.save({"url": url, "name": "Kitchen Pi", "inbox": str(home / "inbox")}, home)
-    service = Service(home)
-    task = asyncio.ensure_future(service.run())
+def _get(url: str, headers=None):
+    req = urllib.request.Request(url, headers=headers or {})
     try:
-        await until(lambda: config.socket_path(home).exists(), what="the local socket")
-        yield service
-    finally:
-        await service.stop()
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await task
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, dict(r.headers), r.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, dict(exc.headers), exc.read()
 
 
-async def in_thread(fn, *args):
-    return await asyncio.get_running_loop().run_in_executor(None, fn, *args)
+def test_the_screen_gets_everything_in_hello(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            hello = (await screen.op("status"))["status"]
+            assert hello["state"] == "ready" and hello["server"]["version"] == "0.22.5"
+            assert [p["display_name"] for p in hello["profiles"]] == ["Hermes", "Sidequest Content"]
+            assert hello["profiles"][0]["avatar"] == "/avatar/default"
+            view = hello["view"]
+            assert view["kind"] == "main" and view["session_id"] == "bot-1"
+            assert [m["role"] for m in view["messages"]] == ["user", "assistant"]
+            assert hello["account"] == {"username": "ada", "remembered": True}
+    run(main())
 
 
-def test_an_app_asks_and_gets_the_answer(run, short_tmp):
-    async def scenario():
-        async with dev_hub() as (hub, brain, url):
-            async with service_for(url, short_tmp / "h") as service:
-                await service.device.wait_ready(10)
-
-                def app():
-                    with connect(config.socket_path(short_tmp / "h")) as h:
-                        assert h.status["device"]["name"] == "Kitchen Pi"
-                        assert h.status["persona"]["name"]
-                        return h.ask("what is for dinner?"), h.refresh()
-
-                answer, status = await in_thread(app)
-                assert answer == "Echo: what is for dinner?"
-                assert [(m["role"], m["text"]) for m in status["chat"]] == [
-                    ("user", "what is for dinner?"), ("assistant", "Echo: what is for dinner?")]
-                assert status["state"] == "ready" and status["busy"] is False
-    run(scenario())
+def test_a_turn_streams_once_with_resent_chunks_dropped(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            start = len(screen.events)
+            await screen.op("send", text="hello there friend")
+            end = await screen.wait("turn.end", after=start)
+            assert end["outcome"] == "success"
+            final = screen.last("message")["message"]
+            assert final["text"] == "You said: *hello there friend*. This is the **fake Hermes**, echoing."
+            deltas = [e["text"] for e in screen.events[start:] if e["type"] == "turn.delta"]
+            assert deltas[-1] == final["text"]
+            assert all(b.startswith(a) for a, b in zip(deltas, deltas[1:]))  # cumulative, never repeating
+            kinds = [e["type"] for e in screen.events[start:]]
+            assert kinds.index("message") < kinds.index("turn.start") < kinds.index("turn.end")
+    run(main())
 
 
-def test_every_app_sees_what_another_sent(run, short_tmp):
-    async def scenario():
-        async with dev_hub() as (hub, brain, url):
-            async with service_for(url, short_tmp / "h") as service:
-                await service.device.wait_ready(10)
-                path = config.socket_path(short_tmp / "h")
-
-                def watcher(ready: threading.Event):
-                    seen = []
-                    with connect(path) as h:
-                        ready.set()
-                        for msg in h.events(timeout=10):
-                            seen.append(msg)
-                            if msg["type"] == "turn.end":
-                                return seen
-                    return seen
-
-                ready = threading.Event()
-                watching = asyncio.ensure_future(in_thread(watcher, ready))
-                await in_thread(ready.wait, 5)
-                photo = short_tmp / "cat.jpg"
-                photo.write_bytes(b"\xff\xd8\xff" + b"0" * 5000)
-                await in_thread(lambda: connect(path).send("look at this", files=[photo]))
-                seen = await watching
-                kinds = [m["type"] for m in seen]
-                assert "uploading" in kinds and "user" in kinds and "reply" in kinds
-                user = next(m for m in seen if m["type"] == "user")
-                assert user["text"] == "look at this" and user["files"][0]["name"] == "cat.jpg"
-                assert "cat.jpg (image/jpeg, 5003 bytes" in next(m for m in seen if m["type"] == "reply")["text"]
-    run(scenario())
+def test_media_arrives_as_items_served_with_range(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            start = len(screen.events)
+            await screen.op("send", text="media please")
+            await screen.wait("turn.end", after=start)
+            message = screen.last("message")["message"]
+            assert [m["kind"] for m in message["media"]] == ["image", "audio", "file"]
+            assert "MEDIA:/home" not in message["text"] and "`MEDIA:/not/a/delivery.png`" in message["text"]
+            base = f"http://127.0.0.1:{service.bridge.bound_port}"
+            loop = asyncio.get_running_loop()
+            audio = message["media"][1]["url"]
+            status, headers, body = await loop.run_in_executor(
+                None, _get, f"{base}{audio}?t={service.bridge.token}", {"Range": "bytes=10-19"})
+            assert status == 206 and len(body) == 10 and headers["Content-Range"].startswith("bytes 10-19/")
+            status, _, _ = await loop.run_in_executor(None, _get, f"{base}{audio}")
+            assert status == 403
+            status, headers, body = await loop.run_in_executor(None, _get, f"{base}/avatar/default?t={service.bridge.token}")
+            assert status == 200 and body.startswith(b"\x89PNG")
+    run(main())
 
 
-def test_an_app_offers_an_action_the_agent_can_call(run, short_tmp):
-    async def scenario():
-        async with dev_hub() as (hub, brain, url):
-            async with service_for(url, short_tmp / "h") as service:
-                await service.device.wait_ready(10)
-                path = config.socket_path(short_tmp / "h")
-                started, stop = threading.Event(), threading.Event()
-
-                def app():
-                    h = connect(path)
-
-                    @h.action("lamp.set", "Turn the lamp on or off.",
-                              {"type": "object", "properties": {"on": {"type": "boolean"}}})
-                    def lamp(on: bool = True):
-                        return {"on": on}
-
-                    started.set()
-                    threading.Thread(target=h.run_forever, daemon=True).start()
-                    stop.wait(10)
-                    h.close()
-
-                running_app = asyncio.ensure_future(in_thread(app))
-                await in_thread(started.wait, 5)
-                session = hub.get(service.device.device_id)
-                await until(lambda: any(a["name"] == "lamp.set" for a in session.actions), what="the app's action")
-                assert "device.health" in [a["name"] for a in session.actions]
-                assert await session.invoke("lamp.set", {"on": False}) == {"on": False}
-                health = await session.invoke("device.health")
-                assert "time" in health
-
-                stop.set()
-                await running_app
-                # The action leaves with the app that offered it.
-                await until(lambda: all(a["name"] != "lamp.set" for a in session.actions), what="the action to go")
-    run(scenario())
+def test_new_chats_work_on_a_hermes_that_refuses_newer_keys(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            view = (await screen.op("chat.new"))["view"]
+            assert view["kind"] == "session" and view["messages"] == []
+            creates = [p for m, p in fake.rpc_log if m == "session.create"]
+            assert "idempotency_key" in creates[0] and "idempotency_key" not in creates[-1]
+            start = len(screen.events)
+            await screen.op("send", text="plan my weekend")
+            title = await screen.wait("title", after=start)
+            assert title["title"] == "plan my weekend"
+            sessions = (await screen.op("sessions.list", profile="default"))["sessions"]
+            assert sessions[0]["title"] == "plan my weekend" and any(s["is_main"] for s in sessions)
+            assert all(s["source"] != "cron" for s in sessions)
+    run(main())
 
 
-def test_any_language_can_use_the_socket(run, short_tmp):
-    """The local API is plain JSON lines; this client uses nothing from the SDK."""
-    async def scenario():
-        async with dev_hub() as (hub, brain, url):
-            async with service_for(url, short_tmp / "h") as service:
-                await service.device.wait_ready(10)
-
-                def raw():
-                    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                    s.connect(str(config.socket_path(short_tmp / "h")))
-                    f = s.makefile("rwb")
-                    hello = json.loads(f.readline())
-                    f.write(b'{"op":"send","text":"hi from C","req":"1"}\n')
-                    f.write(b'{"op":"nonsense","req":"2"}\n')
-                    f.flush()
-                    lines = []
-                    while not any(m.get("type") == "turn.end" for m in lines):
-                        lines.append(json.loads(f.readline()))
-                    s.close()
-                    return hello, lines
-
-                hello, lines = await in_thread(raw)
-                assert hello["type"] == "hello" and hello["state"] == "ready"
-                results = {m["req"]: m for m in lines if m["type"] == "result"}
-                assert results["1"]["ok"] is True
-                assert results["2"]["ok"] is False and "unknown op" in results["2"]["error"]
-                assert any(m["type"] == "reply" and m["text"] == "Echo: hi from C" for m in lines)
-    run(scenario())
+def test_approvals_offer_only_once_or_deny(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            start = len(screen.events)
+            await screen.op("send", text="please approve this")
+            prompt = (await screen.wait("prompt", after=start))["prompt"]
+            assert prompt["command"] == "rm -rf ~/build/cache"
+            assert [c["id"] for c in prompt["choices"]] == ["once", "deny"]
+            refused = await screen.op("answer", id=prompt["id"], choice="always")
+            assert not refused["ok"] and "once" in refused["error"]
+            assert (await screen.op("answer", id=prompt["id"], choice="once"))["ok"]
+            await screen.wait("turn.end", after=start)
+            assert screen.last("message")["message"]["text"] == "You chose **once**."
+    run(main())
 
 
-def test_history_and_settings_through_the_service(run, short_tmp):
-    async def scenario():
-        async with dev_hub() as (hub, brain, url):
-            async with service_for(url, short_tmp / "h") as service:
-                await service.device.wait_ready(10)
-
-                def app():
-                    with connect(config.socket_path(short_tmp / "h")) as h:
-                        sessions = h.sessions()
-                        discord = h.session_messages("dev-discord")
-                        resumed = h.resume("dev-discord")
-                        chat = h.refresh()["chat"]
-                        h.request("set", theme="light")
-                        with pytest.raises(HermletError):
-                            h.request("set", theme="purple")
-                        assert h.set_look(accent="red", fun=False)["accent"] == "#e5484d"
-                        h.new_session()
-                        return sessions, discord, resumed, chat, h.refresh()
-
-                sessions, discord, resumed, chat, after = await in_thread(app)
-                assert len(sessions) == 3
-                assert discord[0]["content"] == "Find me a train to Lisbon"
-                assert resumed["id"] == "dev-discord"
-                assert [m["text"] for m in chat] == ["Find me a train to Lisbon", "There is one at 9:40 from Porto."]
-                assert after["chat"] == [] and after["theme"] == "light"
-                assert after["look"]["fun"] is False and after["look"]["accent"] == "#e5484d"
-    run(scenario())
+def test_questions_are_asked_one_at_a_time(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            start = len(screen.events)
+            await screen.op("send", text="ask me")
+            first = (await screen.wait("prompt", after=start))["prompt"]
+            assert first["text"] == "Tea or coffee?" and not first["free_text"]
+            mark = len(screen.events)
+            await screen.op("answer", id=first["id"], choice="Tea")
+            second = (await screen.wait("prompt", after=mark))["prompt"]
+            assert second["free_text"]
+            await screen.op("answer", id=second["id"], text="A biscuit")
+            await screen.wait("turn.end", after=start)
+            assert '"q1": "Tea"' in screen.last("message")["message"]["text"]
+    run(main())
 
 
-def test_not_running_is_explained(short_tmp):
-    with pytest.raises(HermletError, match="not running"):
-        connect(short_tmp / "nope.sock")
+def test_a_failed_turn_says_why(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            start = len(screen.events)
+            await screen.op("send", text="error please")
+            end = await screen.wait("turn.end", after=start)
+            assert end["outcome"] == "failure" and "unavailable" in end["error"]
+    run(main())
 
 
-def test_a_second_service_refuses_to_start(run, short_tmp):
-    async def scenario():
-        async with dev_hub() as (hub, brain, url):
-            async with service_for(url, short_tmp / "h"):
-                with pytest.raises(HermletError, match="already running"):
-                    await Service(short_tmp / "h").start()
-    run(scenario())
+def test_activity_elsewhere_reloads_the_open_main_chat_or_asks_for_attention(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            start = len(screen.events)
+            await fake.post_elsewhere("default", "From my phone", "Got it, from the phone.")
+            view = (await screen.wait("view", after=start))["view"]
+            assert view["messages"][-1]["text"] == "Got it, from the phone."
+            await screen.op("chat.new")
+            mark = len(screen.events)
+            await fake.post_elsewhere("default", "Routine output", "The backup finished.")
+            attention = await screen.wait("attention", after=mark)
+            assert attention["profile"] == "default"
+    run(main())
 
 
-def test_an_app_names_and_colours_the_critter(run, short_tmp):
-    async def scenario():
-        async with dev_hub() as (hub, brain, url):
-            async with service_for(url, short_tmp / "h") as service:
-                await service.device.wait_ready(10)
-
-                def app():
-                    with connect(config.socket_path(short_tmp / "h")) as h:
-                        first = dict(h.status)
-                        suggestion = h.suggest_name()
-                        preview = h.request("persona.preview", colour="sky")["persona"]
-                        with pytest.raises(HermletError, match="not a colour"):
-                            h.set_persona("Pib", "sparkly")
-                        result = h.set_persona("Pib", "sky")
-                        return first, suggestion, preview, result, h.refresh()
-
-                first, suggestion, preview, result, after = await in_thread(app)
-                assert first["persona_chosen"] is False
-                assert [s["name"] for s in first["swatches"]][:3] == ["moss", "mint", "teal"]
-                assert 2 <= len(suggestion) <= 8 and suggestion[0].isupper()
-                assert preview["colour"] == "#69b7e8" and preview["chosen"] is False
-                assert result["memory"] == "saved" and result["persona"]["name"] == "Pib"
-                assert after["persona_chosen"] is True and after["persona"]["colour"] == "#69b7e8"
-    run(scenario())
+def test_older_messages_page_in(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            for i in range(130):
+                fake._add("bot-1", "user" if i % 2 == 0 else "assistant", f"message {i}")
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            view = (await screen.op("chat.open", profile="default"))["view"]
+            assert len(view["messages"]) == 120 and view["has_more"]
+            assert view["messages"][-1]["text"] == "message 129"
+            older = await screen.op("history.more")
+            assert len(older["messages"]) == 12 and not older["has_more"]
+            assert older["messages"][-1]["text"] == "message 9"
+    run(main())
 
 
-def test_coming_back_after_a_long_while_starts_a_fresh_conversation(run, short_tmp):
-    """A conversation is re-sent to the model every turn, so one left running for days costs
-    more and more. After the idle time in the look, the next visit starts a new one."""
-    async def scenario():
-        async with dev_hub() as (hub, brain, url):
-            async with service_for(url, short_tmp / "h") as service:
-                await service.device.wait_ready(10)
-                path = config.socket_path(short_tmp / "h")
-                assert service.device.look["fresh_after_min"] == 20            # the sensible default
-
-                def say(text):
-                    with connect(path) as h:
-                        return h.ask(text), h.refresh()["chat"]
-
-                await in_thread(say, "first thing")
-                _, chat = await in_thread(say, "second thing")
-                assert len(chat) == 4                                         # one conversation so far
-
-                service._last_activity -= 21 * 60                             # twenty-one minutes pass
-                assert await service._freshen() is True                       # what the idle watcher does
-                assert service.chat == []
-                _, chat = await in_thread(say, "back again")
-                assert [m["text"] for m in chat] == ["back again", "Echo: back again"]
-
-                # A visit after a long while also starts fresh by itself, even between watcher ticks.
-                service._last_activity -= 21 * 60
-                _, chat = await in_thread(say, "much later")
-                assert [m["text"] for m in chat] == ["much later", "Echo: much later"]
-
-                # "Never" keeps one conversation going.
-                def never():
-                    with connect(path) as h:
-                        h.set_look(fresh_after_min=0)
-                await in_thread(never)
-                service._last_activity -= 5 * 24 * 3600
-                assert await service._freshen() is False
-                _, chat = await in_thread(say, "still here")
-                assert len(chat) == 4
-    run(scenario())
+def test_a_profile_without_a_main_chat_gets_one(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            view = (await screen.op("chat.open", profile="sidequest-content"))["view"]
+            assert view["kind"] == "main" and fake.profiles["sidequest-content"]["main"] == view["session_id"]
+            created = [p for m, p in fake.rpc_log if m == "session.create"][-1]
+            assert created["title"] == "Bot Chat" and created["hidden"] is True
+    run(main())
 
 
-def test_the_app_can_do_the_whole_setup(run, short_tmp):
-    """Nothing is configured: the service still starts, says so, and takes the address from an app."""
-    async def scenario():
-        async with dev_hub() as (hub, brain, url):
-            home = short_tmp / "h"
-            home.mkdir()
-            service = Service(home)                       # no config.json at all
-            task = asyncio.ensure_future(service.run())
-            try:
-                await until(lambda: config.socket_path(home).exists(), what="the local socket")
-                path = config.socket_path(home)
+def test_compact_reloads_the_chat(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            for text in ("one", "two"):
+                start = len(screen.events)
+                await screen.op("send", text=text)
+                await screen.wait("turn.end", after=start)
+            mark = len(screen.events)
+            assert (await screen.op("chat.compact"))["ok"]
+            view = (await screen.wait("view", after=mark))["view"]
+            assert view["messages"][0]["text"] == "Summary of the earlier conversation."
+    run(main())
 
-                def app():
-                    with connect(path) as h:
-                        first = dict(h.refresh())  # a copy: the client keeps its snapshot up to date in place
-                        with pytest.raises(HermletError, match="does not know where"):
-                            h.send("too early")
-                        with pytest.raises(HermletError):
-                            h.request("setup", url="ftp://nope")
-                        h.request("setup", timeout=40, url=url, name="Hall Pi")
-                        deadline = time.time() + 10
-                        while h.refresh()["state"] != "ready" and time.time() < deadline:
-                            time.sleep(0.05)
-                        return first, h.refresh(), h.ask("hello from a fresh device")
 
-                first, after, answer = await in_thread(app)
-                assert first["state"] == "setup" and first["mode"] == "setup" and first["url"] == ""
-                assert after["state"] == "ready" and after["device"]["name"] == "Hall Pi" and after["url"] == url
-                assert answer == "Echo: hello from a fresh device"
-                assert config.load(home)["url"] == url          # remembered for next time
+def test_reading_aloud_streams_pcm(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            start = len(screen.events)
+            await screen.op("send", text="links please")
+            await screen.wait("turn.end", after=start)
+            message = screen.last("message")["message"]
+            spoken = await screen.op("speak", message_id=message["id"])
+            began = await screen.wait("speech.start", after=start)
+            assert began["id"] == spoken["id"] and began["sample_rate"] == 24000
+            end = await screen.wait("speech.end", after=start)
+            assert end["reason"] == "done" and len(screen.binary) >= 1
+            assert "https" not in fake.speech_texts[-1]
+    run(main())
 
-                # Moving to another Hermes: the old one's critter is not shown while the new one is found.
-                async with dev_hub(seed="another") as (hub2, brain2, url2):
-                    def move():
-                        with connect(path) as h:
-                            before = h.refresh()["persona"]["name"]
-                            h.request("setup", timeout=40, url=url2)
-                            deadline = time.time() + 10
-                            while (h.refresh()["state"] != "ready" or h.status["url"] != url2) and time.time() < deadline:
-                                time.sleep(0.05)
-                            return before, h.refresh(), h.ask("still here?")
-                    before, moved, answer = await in_thread(move)
-                    assert moved["url"] == url2 and moved["device"]["name"] == "Hall Pi" and moved["chat"] == []  # a fresh page
-                    assert moved["persona"]["name"] != before and answer == "Echo: still here?"
-            finally:
-                await service.stop()
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await task
-    run(scenario())
+
+def test_signing_out_and_in_again(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            mark = len(screen.events)
+            await screen.op("signout")
+            await screen.wait("link", after=mark, where=lambda e: e["state"] == "signin")
+            assert not json.loads((short_tmp / "credentials.json").read_text()).get("password")
+            bad = await screen.op("signin", username="ada", password="wrong", remember=False)
+            assert not bad["ok"] and "not right" in bad["error"]
+            mark = len(screen.events)
+            assert (await screen.op("signin", username="ada", password="pw", remember=False))["ok"]
+            await screen.wait("link", after=mark, where=lambda e: e["state"] == "ready")
+    run(main())
+
+
+def test_a_dropped_connection_comes_back_by_itself(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            mark = len(screen.events)
+            for ws in list(fake.connections):
+                await ws.close()
+            offline = await screen.wait("link", after=mark, where=lambda e: e["state"] == "offline")
+            assert offline["error"] and "retry_in" in offline
+            await screen.wait("link", after=mark, where=lambda e: e["state"] == "ready", timeout=15)
+    run(main())
+
+
+def test_settings_are_checked_and_kept(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            result = await screen.op("settings.set", changes={"text_size": "large", "brightness": 7, "bogus": 1,
+                                                              "quiet_start": "25:00"})
+            assert result["settings"]["text_size"] == "large" and result["settings"]["brightness"] == 1.0
+            assert result["settings"]["quiet_start"] == "23:00"
+            saved = json.loads((short_tmp / "settings.json").read_text())
+            assert saved["text_size"] == "large" and "bogus" not in saved
+    run(main())
+
+
+def test_the_bridge_needs_its_token(run, short_tmp, desk_ctx):
+    async def main():
+        from websockets.asyncio.client import connect
+        from websockets.exceptions import InvalidStatus
+
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            port = service.bridge.bound_port
+            with pytest.raises(InvalidStatus):
+                await connect(f"ws://127.0.0.1:{port}/ws?t=wrong")
+            loop = asyncio.get_running_loop()
+            status, _, _ = await loop.run_in_executor(None, _get, f"http://127.0.0.1:{port}/")
+            assert status == 403
+    run(main())
+
+
+def test_the_heartbeat_pings_hermes(run, short_tmp, desk_ctx, monkeypatch):
+    from lantern import dashboard
+
+    monkeypatch.setattr(dashboard, "PING_EVERY_S", 0.2)
+
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            await until(lambda: any(m == "gateway.ping" for m, _ in fake.rpc_log), 5, "a gateway.ping")
+    run(main())
+
+
+def test_opening_the_open_chat_keeps_it_and_a_send_waits_for_a_switch(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            resumes = sum(1 for m, _ in fake.rpc_log if m == "session.resume")
+            await screen.op("chat.open", profile="default")
+            assert sum(1 for m, _ in fake.rpc_log if m == "session.resume") == resumes  # nothing reopened
+            # Switch chats and send at once: the message must land in the chat being opened.
+            switching = asyncio.ensure_future(screen.op("chat.open", profile="default", session_id="disc-1"))
+            await asyncio.sleep(0)
+            start = len(screen.events)
+            await screen.op("send", text="hello after switching")
+            await switching
+            await screen.wait("turn.end", after=start)
+            assert fake.messages["disc-1"][-2]["content"] == "hello after switching"
+    run(main())

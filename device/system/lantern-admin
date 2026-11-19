@@ -1,0 +1,3 @@
+#!/bin/sh
+# `lantern` for the device's admin: runs the command as the service's own account and settings.
+exec sudo -u lantern LANTERN_HOME=/var/lib/lantern /opt/lantern/current/venv/bin/lantern "$@"

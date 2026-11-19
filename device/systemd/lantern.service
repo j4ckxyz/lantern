@@ -1,0 +1,41 @@
+[Unit]
+Description=Lantern: the connection between the desk's screen and Hermes
+Wants=network-online.target
+After=network-online.target tailscaled.service
+# Five crashes in two minutes and systemd stops trying; the screen then says it cannot reach the service.
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=lantern
+Group=lantern
+Environment=LANTERN_HOME=/var/lib/lantern
+Environment=LANTERN_URL_FILE=/run/lantern/start-url
+ExecStart=/opt/lantern/current/venv/bin/lantern run
+Restart=always
+RestartSec=2
+RuntimeDirectory=lantern
+RuntimeDirectoryMode=0750
+# Keep this boot's screen token across restarts, so the open page keeps working.
+RuntimeDirectoryPreserve=yes
+StateDirectory=lantern
+StateDirectoryMode=0700
+UMask=0077
+
+# The service only needs the network and its own folders.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryMax=300M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,28 +1,35 @@
-Hermlet is an independent community project. It is not affiliated with,
-endorsed by or supported by Nous Research. "Hermes", "Hermes Agent" and "Nous
-Research" are names of Nous Research and are used here only to describe what
-this software works with.
+Lantern (called Hermlet up to version 0.1) is an independent community
+project. It is not affiliated with, endorsed by or supported by Nous
+Research. "Hermes", "Hermes Agent" and "Nous Research" are names of Nous
+Research and are used here only to describe what this software works with.
 
 Where ideas came from
 ---------------------
 
 * Muse Gadgets (https://github.com/facebookincubator/muse-gadget-sdk, Apache
-  2.0) for the shape of the thing: a device SDK you install on a spare Linux
-  box, with a README for people and an AGENTS.md for coding agents. No code
-  from it is used.
+  2.0) for the shape of the original project: a device you put on a spare
+  Linux box, with a README for people and an AGENTS.md for coding agents. No
+  code from it is used.
 
-* Hermes Gadget (https://github.com/Adolanium/hermes-gadget-sdk, MIT, by the
-  Hermes Gadget SDK contributors) for how a device can plug into Hermes as a
-  platform plugin. The optional plugin in plugin/ follows the same approach:
-  each device is a direct-message chat, Hermes's own pairing codes approve it,
-  a key enrolled on first contact is proven by HMAC afterwards, and binary
-  WebSocket frames carry a four-byte channel/stream/sequence header. The code
-  here was written for this project against the same Hermes interfaces.
+* Hermes Gadget (https://github.com/Adolanium/hermes-gadget-sdk, MIT) inspired
+  the optional platform plugin of earlier versions. That plugin has been
+  removed from this version; it remains in the project's history.
 
-Fetched when the app is built, each under its own license
-----------------------------------------------------------
+Bundled into the screen's UI when it is built, each under its own licence
+-------------------------------------------------------------------------
 
-* LVGL (https://github.com/lvgl/lvgl), MIT. Includes the Montserrat fonts
-  (SIL Open Font License) and the Unscii font (public domain).
-* cJSON (https://github.com/DaveGamble/cJSON), MIT.
-* SDL2 (https://www.libsdl.org), zlib license, linked from the system.
+* Preact (https://preactjs.com), MIT.
+* markdown-it (https://github.com/markdown-it/markdown-it), MIT.
+* DOMPurify (https://github.com/cure53/DOMPurify), Apache 2.0 or MPL 2.0.
+* highlight.js (https://highlightjs.org), BSD 3-Clause.
+* qrcode-generator (https://github.com/kazuhikoarase/qrcode-generator), MIT.
+* Inter (https://rsms.me/inter/) and JetBrains Mono
+  (https://www.jetbrains.com/lp/mono/) fonts, SIL Open Font License 1.1, via
+  Fontsource.
+
+Installed on the device from Raspberry Pi OS, each under its own licence
+------------------------------------------------------------------------
+
+* cage, Chromium, Plymouth, PipeWire and Noto Color Emoji.
+* websockets (https://github.com/python-websockets/websockets), BSD 3-Clause,
+  the service's only Python dependency.

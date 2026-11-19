@@ -1,0 +1,144 @@
+/* Every colour and size the screen uses, in one place. Widgets never hard-code a colour. */
+
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #000;
+  --bg-raised: #000;
+  --surface: #0f1130;
+  --surface-2: #181b45;
+  --surface-3: #232860;
+  --line: rgba(150, 160, 255, 0.12);
+  --line-strong: rgba(150, 160, 255, 0.24);
+  --text: #f2f3fb;
+  --text-2: #aab0d6;
+  --text-3: #858bb6;
+  --accent: #6f93ff;
+  --accent-fill: #2f58d6;
+  --accent-soft: rgba(111, 147, 255, 0.16);
+  --on-accent: #ffffff;
+  --user-bubble: #1c2160;
+  --code-bg: #07081c;
+  --code-head: #0d0f2e;
+  --danger: #ff8a8a;
+  --danger-soft: rgba(255, 110, 110, 0.12);
+  --success: #5fd6a4;
+  --warning: #f5bd64;
+  --scrim: rgba(0, 0, 0, 0.72);
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.7);
+  --qr-light: #ffffff;
+  --qr-dark: #05051f;
+  --glow: none;
+  /* True black, so the screen's edges vanish into the display's black glass. The colour lives in
+     the ambient light behind the panel (aura.css), one layer per state. */
+  --aura-idle: 40, 56, 160;
+  --aura-idle-a: 0.5;
+  --aura-work: 72, 112, 255;
+  --aura-work-a: 0.42;
+  --aura-work-boost: 0.16;
+  --aura-wait: 245, 165, 64;
+  --aura-wait-a: 0.36;
+  --aura-away: 120, 124, 146;
+  --aura-away-a: 0.16;
+
+  --hl-keyword: #c3a6ff;
+  --hl-string: #9fe0b8;
+  --hl-number: #ffc48a;
+  --hl-comment: #6c73a3;
+  --hl-title: #8fb4ff;
+  --hl-attr: #ffd28a;
+  --hl-meta: #8ad8f0;
+  --hl-deletion: #ff9a9a;
+  --hl-addition: #9fe0b8;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f4f5fb;
+  --bg-raised: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #e9ecf8;
+  --surface-3: #dce1f5;
+  --line: rgba(20, 28, 90, 0.1);
+  --line-strong: rgba(20, 28, 90, 0.2);
+  --text: #0c0e2e;
+  --text-2: #464c76;
+  --text-3: #5b618d;
+  --accent: #2a52cc;
+  --accent-fill: #2f58d6;
+  --accent-soft: rgba(47, 88, 214, 0.1);
+  --on-accent: #ffffff;
+  --user-bubble: #dfe5fb;
+  --code-bg: #f0f2fa;
+  --code-head: #e4e8f6;
+  --danger: #c22c2c;
+  --danger-soft: rgba(200, 40, 40, 0.08);
+  --success: #17804f;
+  --warning: #9a6300;
+  --scrim: rgba(10, 12, 40, 0.4);
+  --shadow: 0 12px 40px rgba(20, 28, 90, 0.18);
+  --qr-light: #ffffff;
+  --qr-dark: #05051f;
+  --glow: radial-gradient(120% 60% at 50% 0%, rgba(47, 88, 214, 0.08), transparent 70%);
+  --aura-idle: 47, 88, 214;
+  --aura-idle-a: 0.1;
+  --aura-work: 47, 88, 214;
+  --aura-work-a: 0.15;
+  --aura-work-boost: 0.06;
+  --aura-wait: 226, 150, 30;
+  --aura-wait-a: 0.22;
+  --aura-away: 100, 104, 128;
+  --aura-away-a: 0.08;
+
+  --hl-keyword: #6b3fd6;
+  --hl-string: #1a7a45;
+  --hl-number: #a65400;
+  --hl-comment: #6d7398;
+  --hl-title: #1f4fc2;
+  --hl-attr: #8a5a00;
+  --hl-meta: #0b6f8c;
+  --hl-deletion: #b42323;
+  --hl-addition: #1a7a45;
+}
+
+:root,
+[data-text-size='comfortable'] {
+  --fs-body: 18px;
+  --lh-body: 27px;
+  --fs-code: 14px;
+  --lh-code: 21px;
+  --fs-meta: 13px;
+  --fs-small: 15px;
+  --fs-name: 17px;
+}
+
+[data-text-size='compact'] {
+  --fs-body: 16px;
+  --lh-body: 24px;
+  --fs-code: 13px;
+  --lh-code: 19px;
+  --fs-meta: 12px;
+  --fs-small: 14px;
+  --fs-name: 16px;
+}
+
+[data-text-size='large'] {
+  --fs-body: 21px;
+  --lh-body: 31px;
+  --fs-code: 16px;
+  --lh-code: 24px;
+  --fs-meta: 14px;
+  --fs-small: 17px;
+  --fs-name: 18px;
+}
+
+:root {
+  --font: 'Inter', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --gutter: 16px;
+  --bar: 56px;
+  --hit: 48px;
+  --radius: 16px;
+  --radius-small: 10px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}

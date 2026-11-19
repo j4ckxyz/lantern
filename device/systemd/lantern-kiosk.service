@@ -1,0 +1,28 @@
+[Unit]
+Description=Lantern: the desk's screen (cage and Chromium on tty1)
+After=lantern.service systemd-user-sessions.service plymouth-start.service
+Wants=lantern.service
+Conflicts=getty@tty1.service
+
+[Service]
+User=kiosk
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty1
+UtmpMode=user
+# Hand the screen over from the splash without a flash of console: keep its last frame until cage draws.
+ExecStartPre=+-/usr/bin/plymouth quit --retain-splash
+ExecStart=/opt/lantern/current/device/kiosk.sh
+Restart=always
+RestartSec=1
+# Chromium is the biggest thing on a 2 GB Pi; if it grows past this, start it afresh.
+MemoryMax=900M
+
+[Install]
+WantedBy=graphical.target

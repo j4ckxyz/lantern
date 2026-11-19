@@ -1,214 +1,126 @@
-# Hermlet
+# Lantern
 
-**Your own Hermes agent, on a Raspberry Pi with a screen.** Walk up to it, type or talk, hand it
-a file, and your agent answers. Every conversation you have had with it elsewhere (Discord, the
-terminal, the web) is one tap away.
+**A desk device for your own Hermes Agent.** A Raspberry Pi 4 behind a 5-inch touchscreen, turned
+landscape, that boots straight into a conversation with your self-hosted
+[Hermes](https://github.com/NousResearch/hermes-agent). No desktop, no browser chrome, nothing to
+open: power it on and Hermes is there.
 
-Hermlet is a small open-source SDK and app for personal devices that talk to *your* self-hosted
-[Hermes Agent](https://github.com/NousResearch/hermes-agent). Nothing needs installing on the
-Hermes side.
-
-<p align="center">
-  <img src="docs/pi5/conversation-dark.png" width="400" alt="The Hermlet app on a Raspberry Pi 5: a pixel critter on the left; on the right a question with a file attached and the agent's answer describing the Raspberry Pi it is running on, above a large prompt box">
-  <img src="docs/pi5/conversation-light.png" width="400" alt="The same conversation in the light theme">
-</p>
-
-<p align="center"><sub>Both pictures were drawn on a Raspberry Pi 5 talking to a real Hermes. <a href="#real-numbers-from-a-raspberry-pi-5">Numbers below.</a></sub></p>
-
-## Set it up
-
-You need two things: a Hermes you already run, and a Raspberry Pi (or any Linux machine) that can
-reach it. [Tailscale](https://tailscale.com) on both is the easy way to make that true from
-anywhere without exposing anything to the internet.
-
-**1. Get your Hermes ready** (once). Open your Hermes dashboard in a browser. If it loads at an
-address like `https://hermes.your-tailnet.ts.net` and asks for a username and password, you are
-done. If not, paste [prompts/setup-hermes.md](prompts/setup-hermes.md) into a chat with your
-Hermes and it will set that up for you.
-
-**2. Install on the Pi.**
-
-```sh
-git clone https://github.com/j4ckxyz/hermlet.git
-cd hermlet
-bash install.sh
-```
-
-**3. Open Hermlet.** It is in the Pi's menu, or run `hermlet-app`. The first time, it asks where
-your Hermes is, then for your dashboard username and password, then what to call your hermlet.
-That is the whole setup: there is nothing to start first and no settings file to edit, because
-the app starts everything it needs. The password is used once to sign in and is never stored.
+Lantern was called Hermlet up to version 0.1, a small SDK and app for personal devices. That
+version is still in the history.
 
 <p align="center">
-  <img src="docs/images/setup-address.png" width="270" alt="First run: the app asks Where is your Hermes, with a box for the address, a box for this device's name and a Connect button">
-  <img src="docs/images/setup-sign-in.png" width="270" alt="Then it asks for the Hermes dashboard username and password">
-  <img src="docs/images/meet-name-and-colour.png" width="270" alt="Then it asks for a name and a colour for your hermlet">
+  <img src="docs/images/chat-dark.png" width="400" alt="The desk at rest: a panel on the left with Hermes's avatar, the time and date, and New chat; the conversation fills the rest">
+  <img src="docs/images/working-dark.png" width="400" alt="While Hermes works: the panel's avatar has a turning ring, and it lists what Hermes is doing, tool by tool, while the reply is written beside it">
 </p>
 
-No screen on the device? `hermlet setup` asks the same questions in a terminal, and
-`hermlet chat` is the same conversation there.
+<p align="center"><sub>Drawn at the panel's real resolution (1280x720) from the UI's screenshot tests.</sub></p>
 
-Something not working? `hermlet doctor` says what and how to fix it. Setting up over SSH with a
-coding agent helping? Hand it [prompts/setup-device.md](prompts/setup-device.md).
-
-## What it is
-
-A place to go to, rather than another chat window.
+## What it does
 
 | | |
 |---|---|
-| **Type, talk, drop a file** | Start typing and it lands in the prompt. Tap the microphone to talk, tap again to send. Drag a file onto the window, or pick one. Speech is turned into text by your Hermes. |
-| **Made for a touch screen** | On a small panel the buttons grow to finger size and an on-screen keyboard appears, so a Pi with a 3.5" screen is a device in its own right. |
-| **Every conversation, everywhere** | Chats are ordinary Hermes sessions, tagged `hermlet`. Your Discord, Telegram, terminal and web conversations sit beside them, searchable, and any of them can be carried on from the device. |
-| **Your hermlet** | Each Hermes gets one pixel critter. You name it and choose its colour, or let it make up its own name. Every device of that Hermes shows the same one, and Hermes itself knows what it is called. |
-| **Restyle it, or just ask** | Theme, accent colour, font, text size, corners, playful or plain. Change it in Settings, with `hermlet look`, or say *"make the accent red and use a code-style font"* and your agent does it while you watch. |
-| **Cheap to leave running** | After 20 idle minutes the next visit starts a fresh conversation, so you are not paying to re-send yesterday's chat on every turn. You can change or switch off that timer, and old conversations stay in the history. The app itself adds about 110 tokens to each conversation. |
-| **Made to be built on** | `hermlet.connect()` in Python, or JSON lines on a local socket from any language. Your own app never touches a password. |
+| **A face for the desk** | Beside the conversation, a panel shows who you are talking to and the time. While Hermes works it lists what it is doing, tool by tool. The screen is true black, so it melts into the display's black glass, and a soft light behind the panel shows Hermes's state: calm when idle, breathing while it works, amber when it needs you |
+| **Your conversations, where you left them** | Each Hermes profile has one main chat, the same one your phone and computer show, so you can carry on at the desk. Start a side chat with one tap, or compact a long chat |
+| **Replies as they are written** | Streamed at a steady reading pace, with Markdown, tables and highlighted code |
+| **Pictures, audio and files** | Whatever the agent sends appears inline. Pictures open full screen, and audio has a player. Files get a QR code, so your phone can download them |
+| **Links you can take with you** | Links become cards with the page's title and icon. Tap one for a large QR code to scan with your phone |
+| **Read aloud** | Any reply can be spoken through Hermes's own text-to-speech, or every reply by choice |
+| **Asks before risky things** | When Hermes wants approval for a command, the desk shows exactly what will run. From the desk you can allow it once or deny it, nothing broader |
+| **Keyboard or touch** | Type on a Bluetooth keyboard, or use the touchscreen |
+| **Built like an appliance** | A quiet boot splash and no console. Logs and swap stay in RAM to spare the SD card. It reconnects by itself and says plainly why when it cannot |
 
-<p align="center"><img src="docs/images/critters.png" width="480" alt="Eight different critters, each in six poses: idle, blink, talk, think, happy, asleep"></p>
+<p align="center">
+  <img src="docs/images/approval-dark.png" width="264" alt="An approval card showing the command and the Deny and Allow once buttons, in place of the message box">
+  <img src="docs/images/media-dark.png" width="264" alt="A reply with an audio player and a file card">
+  <img src="docs/images/qr-light.png" width="264" alt="The light theme: a QR code for a link, beside its title and address">
+</p>
 
 ## How it works
 
 ```
- your device (Raspberry Pi, any Linux)              your Hermes (VPS, home server)
-┌──────────────────────────────────────┐           ┌──────────────────────────────┐
-│ hermlet-app     your apps    hermlet │           │  hermes dashboard            │
-│      │              │         send   │           │   /api/ws    chat, sessions  │
-│      └──────┬───────┴──────────┘     │ Tailscale │   /api/sessions   history    │
-│     local socket (JSON lines)        │◄─────────►│   /api/audio      voice      │
-│      hermlet run  (the service)      │           │  state.db  every conversation│
-└──────────────────────────────────────┘           └──────────────────────────────┘
+ the desk (Raspberry Pi 4)                                    your Hermes (VPS, home server)
+┌────────────────────────────────────────────────────┐        ┌──────────────────────────┐
+│ Chromium in a kiosk (cage), no desktop             │        │ hermes dashboard         │
+│   the screen: a small web app, holds no secrets    │        │  /api/ws    chat, events │
+│        │ 127.0.0.1 only, per-boot token            │Tailscale│  /api/sessions  history │
+│ lantern run: the one connection to Hermes          │◄──────►│  /api/audio  speech      │
+│   sign-in, history, media, link previews, speech   │        │                          │
+└────────────────────────────────────────────────────┘        └──────────────────────────┘
 ```
 
-- **One small service, `hermlet run`,** holds the connection to Hermes and shares it with
-  everything on the device through a local socket. The app, the `hermlet` command and anything
-  you write all talk to that socket. You never start it by hand: the app does when it opens,
-  and `hermlet service install` keeps it running from boot.
-- **It speaks the API Hermes already has**: the one the Hermes desktop app uses. No plugin, no
-  restart, no new port. Conversations are stored by Hermes in its own session store, next to
-  everything else you have said to it.
-- **A few small things live on Hermes** so every device agrees: your hermlet's name and colour,
-  the app's look, a skill that teaches the agent how to restyle the app, and one line in the
-  agent's own notes so it knows its critter's name. They are written through Hermes's own file
-  API when you name your hermlet; delete them and Hermes is as it was.
-- **An optional plugin** adds what that API cannot do: letting the agent call actions on the
-  device (a lamp, a camera) and reach it unprompted. Most people will not need it;
-  [docs/two-ways.md](docs/two-ways.md) compares the two.
+- **It speaks the API Hermes's own apps use.** Nothing is installed on Hermes: no plugin, no
+  restart, no new port.
+- **One small service holds the connection and the sign-in.** The screen talks only to it, over
+  127.0.0.1, and never sees a credential. `docs/local-api.md` is the contract between them.
+- **Agent output is treated as untrusted.** Markdown is sanitised, and nothing navigates away from
+  the chat. Link previews refuse private and tailnet addresses.
 
-## See it working
+## Set it up
 
-| | |
-|---|---|
-| <img src="docs/images/meet-name-and-colour.png" width="380" alt="Meet your hermlet: a name box, a Make one up button and twelve colour swatches"> | <img src="docs/pi5/touch-480x320.png" width="380" alt="The app on a 480 by 320 touch screen with large buttons"> |
-| First run: name your hermlet and choose its colour | A 480x320 touch panel: bigger buttons, less chrome |
-| <img src="docs/pi5/thinking.png" width="380" alt="The app while the agent works: the critter looks up, the line under its name says Thinking, and the send button has become a stop button"> | <img src="docs/images/question.png" width="380" alt="A question from the agent with yes and no buttons"> |
-| While it works: the critter thinks, and send becomes stop | The agent can ask before it does something |
-| <img src="docs/images/look-red-code.png" width="380" alt="The app with a red accent and a monospace font"> | <img src="docs/images/look-plain-light.png" width="380" alt="The plain look: no critter, neutral colours"> |
-| After asking *"make the accent red and use a code-style font"* | The plain look, for when the critter is too much |
-| <img src="docs/images/history.png" width="380" alt="The history screen listing a hermlet, a Discord and a terminal conversation"> | <img src="docs/images/settings.png" width="380" alt="Settings: theme, style, accent, font"> |
-| History from every surface, with search | Settings, shared by all your devices |
+You need a Hermes you already run, reachable over [Tailscale](https://tailscale.com), and:
 
-What you say sits in a plain box and what the agent says in one tinted with your accent colour.
-The exchange happening now is set larger than what came before, and replies are written out as
-they arrive. With text-to-speech set up on your Hermes and a speaker on the device, answers can be
-read aloud as well.
+- a Raspberry Pi 4 (2 GB is plenty) with the Raspberry Pi Touch Display 2 (5"), and a microSD card;
+- optionally a Bluetooth keyboard and a speaker.
 
-The pictures in `docs/pi5` come from the Pi; the others were drawn on a laptop against the
-built-in development server, which echoes what you send.
+1. **Get Hermes ready** (once). Paste [prompts/setup-hermes.md](prompts/setup-hermes.md) into a chat
+   with your Hermes. It checks the dashboard has a username and password, and that it is reachable
+   on your tailnet. It also adds a short note so replies suit a small screen.
+2. **Flash the card** with Raspberry Pi OS Lite (64-bit) using Raspberry Pi Imager. Set your Wi-Fi,
+   a user and your SSH key there.
+3. **Install.** Copy a release bundle to the Pi and run the installer:
 
-## Real numbers from a Raspberry Pi 5
+   ```sh
+   sudo bash install.sh --bundle lantern-0.2.0-arm64.tar.zst
+   sudo tailscale up --ssh
+   sudo reboot
+   ```
 
-Measured on a Raspberry Pi 5 (8 GB, Debian 13, 64-bit) with no screen attached, talking over
-Tailscale to Hermes Agent 0.21.5 on another machine.
+   The screen is turned to landscape. If the picture comes up upside down for the way your
+   display stands, run the installer again with `--rotate 270`; `--rotate 0` keeps it portrait.
 
-| | |
-|---|---|
-| Automated tests | 47 pass, in 17 seconds (one more, which needs a Hermes checkout, is opt-in) |
-| Building the app from source | 43 seconds (plus about 40 seconds to fetch its two libraries) |
-| The app binary | 1.1 MB, needing only the C library |
-| The app starting | about 10 milliseconds to its first drawn frame |
-| Memory: the app | 4 MB |
-| Memory: the service | about 40 MB |
-| `hermlet setup`: sign in and connect | 2.3 seconds |
-| A question to a finished answer | 4.5 seconds (the time is the model's, not the Pi's) |
-| A question with a file attached | 3.3 to 4.7 seconds |
+   A coding agent can do this for you with [prompts/setup-device.md](prompts/setup-device.md).
+4. **On the screen**, type your Hermes address and sign in. That's all.
 
-The Pi was asked, with a text file describing itself attached, what computer it was running on.
-It answered: *"It's a Raspberry Pi 5 Model B with 8 GB of RAM, running Debian 13 on 64-bit ARM
-Linux."* (That is the conversation in the pictures at the top.)
+To build a bundle yourself: `make bundle` (needs Node 20+ and Python 3.11+).
 
-What that run did not cover is as important: there was **no physical screen, touch panel,
-microphone or speaker** on that Pi, so those have been drawn and wired up but not used by a
-person. The full record, including what has not been tried, is in [docs/tested.md](docs/tested.md).
-
-## Build on it
-
-```python
-import hermlet
-
-h = hermlet.connect()                      # the service on this machine; no passwords
-
-print(h.ask("Is it going to rain today?"))
-
-h.send("The garage door has been open for an hour.", files=["snapshot.jpg"])
-
-for event in h.events():                   # everything, as it happens
-    if event["type"] == "reply":
-        print(event["text"])
-```
-
-| Start here | For |
-|---|---|
-| [AGENTS.md](AGENTS.md) | Coding agents (and people) building an app or changing the SDK |
-| [docs/local-api.md](docs/local-api.md) | The local socket: every operation and every event |
-| [examples/](examples) | A doorbell with a camera, an action the agent can call, an event ticker, a client with no SDK |
-| [docs/two-ways.md](docs/two-ways.md) | The dashboard route and the optional plugin, compared |
-| [docs/tested.md](docs/tested.md) | What has been run, on what, with timings |
-
-No Hermes to hand? `hermlet devserver` stands in for one, so an app can be built and tested on a
-laptop.
-
-More from the command line:
+## Developing on a Mac (or any computer)
 
 ```sh
-hermlet send -a photo.jpg "what plant is this?"
-hermlet sessions                          # past conversations from every surface
-hermlet look accent=red font=mono         # restyle every device of this Hermes
-hermlet critter --name Pib --colour teal
-hermlet service install                   # keep it connected in the background
+make setup           # Python venv with the dev tools, and the UI's packages
+make fake &          # a stand-in Hermes on 127.0.0.1:9119 (user ada, password pw)
+LANTERN_HOME=/tmp/lantern-dev .venv/bin/lantern setup http://127.0.0.1:9119 --username ada
+make dev &           # the service, in development mode
+cd ui && npm run dev # then open the address it prints at 640x360, device scale factor 2
 ```
+
+The stand-in Hermes answers with scripted replies on certain words: `slow`, `media`, `links`,
+`voice`, `approve`, `ask`, `error` and `long`. Each one shows a different state. Point the service
+at your real Hermes instead with `lantern setup https://...`.
+
+`make test` runs the checks that need no hardware. [AGENTS.md](AGENTS.md) is the guide to the code,
+and [PLAN.md](PLAN.md) the plan and its milestones.
 
 ## Status
 
-Version 0.1, and young. It has been built and run on a Raspberry Pi 5 against a live Hermes, but
-not yet with a real screen, touch panel, microphone or speaker attached, and not on a smaller Pi.
-The installer's last step (building the app with its window library) has not been run on a Pi
-either, and setting up from inside the app has so far been run on a laptop only. Expect to find something on first contact with your hardware, and please say what.
+Version 0.2, in development. The service and the screen are built, and both are tested against a
+stand-in Hermes. The connection, history, streaming, speech and compaction have been checked against
+a real Hermes 0.22.5. **Nothing has run on the Raspberry Pi or the Touch Display 2 yet.** That
+includes the installer, the kiosk, the splash, touch, memory and boot time.
+[docs/tested.md](docs/tested.md) records exactly what has been run.
 
-One thing to know before you rely on it: a device keeps a signed-in session with your Hermes
-dashboard, and that dashboard can change your Hermes configuration. Treat a hermlet like a
-logged-in laptop. [docs/two-ways.md](docs/two-ways.md) explains this and what to do if a device
-is lost.
+Before you rely on it: Hermes has no device-sized credential, so the desk holds a full dashboard
+session. If you choose to, it also holds the password, so it can sign in again by itself. Treat
+the SD card like a signed-in laptop. If it is lost, change your Hermes dashboard password, which
+signs every device out.
 
 ## Credits
 
-Hermlet stands on other people's ideas.
-
-- **[Muse Gadgets](https://github.com/facebookincubator/muse-gadget-sdk)** by Meta showed the shape
-  of the thing: an SDK you install on a spare Linux box to give your own agent a body, with a
-  README for people and an `AGENTS.md` for coding agents.
-- **[Hermes Gadget](https://github.com/Adolanium/hermes-gadget-sdk)** by Adolanium and contributors
-  showed how a device can join Hermes as a messaging platform, with pairing codes and a
-  per-device key. The optional plugin here follows that approach. If you want a voice-first
-  ESP32 gadget, go there.
-- **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** by Nous Research is the agent
-  all of this talks to.
-- The app is drawn with [LVGL](https://github.com/lvgl/lvgl) and reads JSON with
-  [cJSON](https://github.com/DaveGamble/cJSON).
-
-This is an unofficial community project. It is not affiliated with or endorsed by Nous Research,
-Meta or the Hermes Gadget project, and uses their names only to say what it works with and where
-its ideas came from.
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research is the agent all of
+this talks to. This is an unofficial community project, not affiliated with or endorsed by Nous
+Research. The screen is built with [Preact](https://preactjs.com),
+[markdown-it](https://github.com/markdown-it/markdown-it), [DOMPurify](https://github.com/cure53/DOMPurify)
+and [highlight.js](https://highlightjs.org), and runs in [cage](https://github.com/cage-kiosk/cage)
+and Chromium.
 
 ## Licence
 

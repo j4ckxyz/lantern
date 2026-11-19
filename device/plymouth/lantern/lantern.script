@@ -1,0 +1,20 @@
+# The desk's boot screen: deep navy, one soft light breathing in the middle. No logo, no text.
+Window.SetBackgroundTopColor(0.020, 0.020, 0.122);
+Window.SetBackgroundBottomColor(0.020, 0.020, 0.122);
+
+dot.image = Image("dot.png");
+dot.sprite = Sprite(dot.image);
+dot.sprite.SetX(Window.GetX() + Window.GetWidth() / 2 - dot.image.GetWidth() / 2);
+dot.sprite.SetY(Window.GetY() + Window.GetHeight() / 2 - dot.image.GetHeight() / 2);
+dot.sprite.SetOpacity(0.3);
+
+tick = 0;
+fun refresh_callback() {
+    tick++;
+    dot.sprite.SetOpacity(0.3 + 0.7 * Math.Abs(Math.Sin(tick / 45)));
+}
+Plymouth.SetRefreshFunction(refresh_callback);
+
+# Messages and prompts are not shown: the desk has nothing to ask at boot.
+fun message_callback(text) {}
+Plymouth.SetMessageFunction(message_callback);

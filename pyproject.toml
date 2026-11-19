@@ -3,35 +3,33 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hermlet"
-version = "0.1.0"
-description = "Put your own Hermes agent on a Raspberry Pi: device SDK, local app API, Hermes platform plugin and tooling."
+name = "lantern"
+version = "0.2.0"
+description = "A desk device for your own Hermes Agent: the service behind a Raspberry Pi touchscreen."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Hermlet contributors" }]
+authors = [{ name = "Lantern contributors" }]
 dependencies = [
   "websockets>=13,<17",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<10"]
+dev = ["pytest>=8,<10", "aiohttp>=3.9,<4", "pyflakes>=3"]
 
 [project.urls]
-Homepage = "https://github.com/j4ckxyz/hermlet"
+Homepage = "https://github.com/j4ckxyz/lantern"
 
 [project.scripts]
-hermlet = "hermlet.cli:main"
+lantern = "lantern.cli:main"
 
 [tool.setuptools]
-# The Hermes plugin directory doubles as an importable package, so the
-# development server and the tests run the exact code the gateway loads.
-package-dir = { "hermlet" = "src/hermlet", "hermlet_plugin" = "plugin" }
-packages = ["hermlet", "hermlet_plugin"]
+package-dir = { "" = "src" }
+packages = ["lantern"]
 
 [tool.setuptools.package-data]
-hermlet = ["data/*"]
-hermlet_plugin = ["plugin.yaml"]
+# The built screen UI is copied here by the release build (device/build-bundle.sh).
+lantern = ["ui/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

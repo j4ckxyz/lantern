@@ -1,186 +1,154 @@
 # The local API
 
-While the service (`hermlet run`) is up, every program on the machine can talk to Hermes through one Unix
-socket. This is what the app, the `hermlet` command and `hermlet.connect()` all use, and it is
-the interface to build against from any language.
+`lantern run` holds the one connection to Hermes. The desk's screen (a web page in Chromium)
+and the `lantern` command talk to it through this API. It is the same protocol over two
+transports:
 
-- **Where:** `~/.config/hermlet/hermlet.sock` (`$HERMLET_HOME/hermlet.sock` when that is set).
-  Mode 0600: only the account running the service can open it.
-- **Framing:** UTF-8 JSON objects, one per line, in both directions.
-- **No credentials:** the service holds the connection to Hermes. A client never sees a password
-  or a token.
-- **Any number of clients.** Every client sees every event, so two apps stay in step: what one
-  sends, the other shows.
+| Transport | Where | Who |
+|---|---|---|
+| WebSocket | `ws://127.0.0.1:8765/ws` | The UI. Gated by a per-boot token (below) |
+| Unix socket | `$LANTERN_HOME/lantern.sock`, mode 0600, one JSON object per line | `lantern status`, `send`, `chat` and scripts |
 
-```sh
-bash examples/raw_socket.sh "hello"      # a complete client in 15 lines
-```
+Nothing here carries a password or a Hermes token. The service never listens on a network
+interface.
 
-## Connecting
+## HTTP on 127.0.0.1:8765
 
-The service speaks first, with a snapshot:
+| Path | What |
+|---|---|
+| `GET /?t=<token>` | The UI. A valid token sets the `lantern_ui` cookie (HttpOnly, SameSite=Strict) that the rest of these paths require |
+| `GET /assets/...` | The built UI's scripts, styles and fonts. No token needed |
+| `GET /ws` | The WebSocket |
+| `GET /media/<id>` | A picture, audio or file the agent sent, fetched from Hermes. Audio honours `Range` |
+| `GET /proxy/image?url=<https url>` | A remote image (a Markdown image, a link card's picture or favicon). Only `http` and `https`; private, loopback, link-local and tailnet addresses are refused; 10 MB and 10 s at most; image types only |
+| `GET /avatar/<profile>` | The profile's avatar, or 404 when it has none |
+
+The token is made fresh at every start and handed to Chromium in its start URL by the kiosk
+unit. `lantern run --dev` uses the fixed token `dev` and also accepts `?t=dev` on every path, so
+a Vite dev server can proxy to it.
+
+## Messages
+
+Every message is a JSON object. The service sends events (`type`); the client sends operations
+(`op`). Add `"req": "<anything>"` to an operation to get exactly one answer:
 
 ```json
-{"type": "hello", "version": 1, "mode": "dashboard",
- "device": {"id": "hermlet:Kitchen Pi", "name": "Kitchen Pi", "kind": "linux-aarch64"},
- "url": "https://hermes.tail1234.ts.net", "state": "ready", "error": "", "agent": "Hermes",
- "persona": {"name": "Juso", "species": "bear", "palette": {...}, "sprite": {...}},
- "persona_chosen": false, "swatches": [{"name": "moss", "hex": "#9ccb5a"}, ...],
- "look": {"theme": "auto", "accent": null, "font": "rounded", "text_size": "medium", "fun": true, ...},
- "pairing": null, "busy": false, "status": "", "prompt": null, "session_title": "Dinner ideas",
- "chat": [{"role": "user", "text": "what should I cook?", "ts": 1791128000.0},
-          {"role": "assistant", "text": "How about lemon pasta?", "ts": 1791128003.1}],
- "mic": {"available": true, "recording": false}, "speaker": true, "speak": false, "theme": "auto",
- "inbox": "/home/pi/Hermlet"}
+{"type": "result", "req": "r7", "ok": true, ...}
+{"type": "result", "req": "r7", "ok": false, "error": "A sentence a person can read."}
 ```
 
-`chat` is the conversation the device is in (up to 200 messages), so an app that starts late
-still shows it. `persona_chosen` is false until the owner has named the critter: an app should
-offer to. `look` is how the app should appear (see [The look](#the-look)). `state` is one of:
+Without `req`, a success is silent and a failure still comes back as a `result` with `req: null`.
 
-| State | Meaning |
-|---|---|
-| `setup` | Nobody has said where Hermes is yet (send a `setup` op). `url` is empty and `mode` is `setup`. |
-| `offline` | Not connected; the service keeps retrying. `error` (here and on `link` events) says why. |
-| `connecting` | Reaching Hermes. |
-| `signin` | Hermes wants a username and password (send a `signin` op). |
-| `pairing` | Plugin mode: waiting for the owner to approve the code in `pairing`. |
-| `ready` | Connected. Messages can be sent. |
+### Shapes
 
-The service starts with nothing configured (state `setup`), so an app can do the whole first
-run itself: send `setup`, then `signin` if the state becomes `signin`, then `persona.set`. The
-bundled app starts the service too when nothing is listening on the socket (`app/src/ipc.c`
-shows how: it looks for the `hermlet` command beside itself, in `~/.local/bin`, then on `PATH`,
-and runs `hermlet run` detached).
+```text
+Profile  {name, display_name, is_default, avatar: "/avatar/<name>" | null,
+          main: {id, preview, last_active, message_count} | null}
+View     {profile, session_id, kind: "main" | "session", title, messages: [Message], has_more}
+Message  {id, role: "user" | "assistant", text, ts, media: [Media],
+          interim?: true, voice?: true, error?: "..."}
+Media    {id, kind: "image" | "audio" | "file", name, mime, size?, url: "/media/<id>",
+          link?: "<the Hermes dashboard download address, for a phone>"}
+Turn     {id, started, text, status, tools: [Tool]}
+Tool     {id, name, label, state: "running" | "done" | "failed", progress?: 0..1, duration_s?}
+Prompt   {id, kind: "approval" | "clarify", title, text, command?,
+          choices: [{id, label}], free_text}
+Session  {id, title, preview, source, last_active, message_count, is_main}
+```
 
-## Ops (client to service)
+`text` is Markdown with `MEDIA:` tags already taken out; what they pointed at is in `media`.
+`ts`, `started` and `last_active` are Unix seconds. A `Message` id is stable, so an event with
+an id the client already shows replaces it.
 
-Every op is `{"op": "<name>", ...}`. Add `"req": "<anything>"` and the service answers that
-client with `{"type": "result", "req": "<same>", "op": "<name>", "ok": true, ...}` or
-`{"ok": false, "error": "a sentence a person can read"}`. Without `req` a success is silent;
-a failure is still reported.
+### The first message: `hello`
 
-| Op | Fields | Result | What it does |
-|---|---|---|---|
-| `send` | `text`, `files` (absolute paths) | `id` | Send a message, with files and pictures alongside |
-| `cancel` | | | Stop what Hermes is doing |
-| `new` | | | Start a fresh conversation |
-| `answer` | `id`, `answer` | | Answer a `prompt` (one of its choices, or free text) |
-| `talk.start` | | | Start listening on the microphone |
-| `talk.stop` | | | Stop listening and send what was said |
-| `talk.cancel` | | | Stop listening and throw it away |
-| `sessions.list` | `limit`, `offset`, `source`, `query` | `sessions` | Past conversations from every surface |
-| `sessions.get` | `session_id`, `limit` | `session`, `messages` | One conversation's messages, oldest first |
-| `sessions.resume` | `session_id` | `session` | Carry that conversation on here |
-| `actions` | `actions` | | Offer actions the agent can call (plugin mode) |
-| `action.result` | `id`, `ok`, `result` or `error` | | The answer to an `action` event |
-| `event` | `name`, `data`, `notify` | | Report that something happened; with `notify` the agent is told |
-| `report` | `sensors` | | Share readings the agent can look up |
-| `status` | | `status` | The `hello` snapshot again |
-| `look.set` | `changes` (an object of look keys), `this_device_only` | `look` | Change the look for every device of this Hermes, or just this one |
-| `look.teach` | | `taught` | Write the skill that lets the agent restyle the app when asked |
-| `persona.set` | `name`, `colour` (a swatch name or `#rrggbb`) | `persona`, `memory`, `taught` | Name and colour the critter. `memory` says whether the agent's notes now mention it: `saved`, `full`, `off`, `failed` |
-| `persona.preview` | `name`, `colour` | `persona` | The critter as it would look. Nothing is saved |
-| `persona.suggest` | | `name` | A name the critter makes up for itself |
-| `set` | `theme` (`auto`, `light`, `dark`), `speak` (bool) | | The older, shorter form of `look.set` |
-| `setup` | `url`, `name` (this device's, optional), `mode` (optional) | | Say where Hermes is, the first time or to move to another. A bare name such as `hermes.tail1234.ts.net` is enough: `https://` and then `http://`...`:9119` are tried. Every client then gets a fresh `hello` |
-| `signin` | `username`, `password` | | Sign in to the Hermes dashboard |
-| `signout` | | | Forget the signed-in session |
+Sent on connecting, and again whenever everything changed (a new Hermes address, signing in or
+out):
 
-A session row is `{"id", "source", "title", "preview", "started_at", "last_active",
-"message_count", "current"}`. `source` is where the conversation happened: `hermlet`, `discord`,
-`telegram`, `cli`, `tui`, `desktop` and so on. Automation (`cron`, `subagent`) is left out unless
-you ask for it with `source`.
+```json
+{"type": "hello", "version": 2,
+ "state": "ready", "error": "", "detail": "",
+ "server": {"url": "https://hermes.example.ts.net", "version": "0.22.5"},
+ "device": {"name": "Desk"},
+ "account": {"username": "ada", "remembered": true},
+ "profiles": [Profile],
+ "view": View,
+ "turn": Turn | null,
+ "prompt": Prompt | null,
+ "settings": {...},
+ "dev": false}
+```
 
-`sessions.resume` on one of the device's own conversations reopens it. On a conversation from
-another surface it starts a new `hermlet` conversation that begins with that history, so the
-original stays exactly as it was in Discord (or wherever it lives).
+`state` is one of:
 
-## Events (service to client)
+| State | Meaning | What the screen offers |
+|---|---|---|
+| `setup` | No Hermes address yet | The address form (`setup`) |
+| `signin` | Hermes wants a username and password | The sign-in form (`signin`) |
+| `connecting` | Reaching Hermes | The last chat, read-only, with a progress line |
+| `offline` | Cannot reach Hermes; retrying. `error` says why in a sentence, `detail` is technical | The last chat, read-only, with the reason and Retry |
+| `ready` | Connected | Everything |
+
+### Events
 
 | Event | Fields | Meaning |
 |---|---|---|
-| `link` | `state`, `error` | The connection state changed |
-| `user` | `id`, `text`, `files`, `ts` | Someone on this device sent a message |
-| `uploading` | `files` | Files are on their way to Hermes |
-| `turn.start` | | Hermes began working |
-| `status` | `text` | What it is doing ("Web search: weather lisbon"); empty clears it |
-| `tool` | `name`, `state` (`start`, `done`) | A tool call began or finished (dashboard mode) |
-| `reply.delta` | `text` | The reply so far. **Cumulative**: replace, do not append |
-| `reply` | `text`, `interim` | A finished reply. `interim` marks commentary before the answer |
-| `turn.end` | `outcome` (`success`, `failure`, `cancelled`) | The turn is over |
-| `transcript` | `text` | What speech-to-text heard |
-| `mic` | `state` (`recording`, `idle`), `level` (0 to 1) | Microphone state, for a meter |
-| `notice` | `text`, `ttl_s` | A short message to show for a while |
-| `card` | `title`, `body`, `ttl_s` | A card the agent put on the screen (plugin mode) |
-| `prompt` | `id`, `title`, `text`, `choices`, `free_text` | A question for the person. Answer with the `answer` op |
-| `prompt.close` | `id` | That question was withdrawn or answered elsewhere |
-| `file` | `path`, `name`, `mime`, `caption` | A file from Hermes was saved to the inbox (plugin mode) |
-| `session` | `id`, `title` | The conversation got a title, or changed |
-| `chat` | `chat`, `session_title` | The whole conversation changed (new, or resumed): redraw it |
-| `persona` | `persona` | The critter changed |
-| `look` | `look` | The look changed: here, on another device, or by the agent. Redraw |
-| `action` | `id`, `name`, `args` | Only to the client that offered it: run this and send `action.result` |
+| `link` | `state`, `error`, `detail`, `retry_in?` | The connection state changed. `retry_in` is seconds until the next attempt |
+| `profiles` | `profiles` | The profile list or a main chat's preview changed |
+| `title` | `session_id`, `title` | Hermes named the open side chat. Update the header; the messages are unchanged |
+| `view` | `view` | A different chat is open, or the open one was reloaded (new, compacted, changed elsewhere) |
+| `message` | `message` | Add this message, or replace the one with the same id |
+| `turn.start` | `turn` | Hermes began working in the open chat |
+| `turn.delta` | `text` | The reply so far. **Cumulative**: replace, never append |
+| `turn.activity` | `status`, `tools` | What Hermes is doing. `status` is a short phrase or empty |
+| `turn.end` | `outcome` (`success`, `failure`, `cancelled`), `error?` | The turn is over. The finished reply has already arrived as a `message` |
+| `prompt` | `prompt` | Hermes needs an answer (an approval or a question) |
+| `prompt.close` | `id` | That prompt was answered or withdrawn |
+| `attention` | `profile`, `session_id`, `preview` | A new message arrived in a main chat the screen is not showing (a routine, your phone). Wakes the screen outside quiet hours |
+| `notice` | `text`, `level` (`info`, `warning`, `error`), `ttl_s` | A short message to show for a while |
+| `settings` | `settings` | Settings changed |
+| `speech.start` | `id`, `message_id`, `sample_rate` | Spoken audio follows as binary frames: signed 16-bit little-endian mono PCM |
+| `speech.end` | `id`, `reason` (`done`, `stopped`, `error`), `error?` | No more audio for that `id` |
 
-A turn always reads `user` → `turn.start` → (`status` / `tool` / `reply.delta`)* → `reply` →
-`turn.end`. Write your UI against that and it works on both routes.
+A turn reads `turn.start` → (`turn.delta` | `turn.activity` | `prompt`)* → `message` → `turn.end`.
+Commentary before the answer arrives as a `message` with `interim: true`.
 
-## The look
+### Operations
 
-One settings file, kept on Hermes and shared by every device (`src/hermlet/look.py` has the full
-description). An app applies what it can and ignores the rest.
+| Op | Fields | Result | Does |
+|---|---|---|---|
+| `send` | `text` | `id` | Send a message in the open chat |
+| `stop` | | | Stop the turn in progress |
+| `chat.open` | `profile`, `session_id?` | `view` | Open a chat; without `session_id`, that profile's main chat (created if it has none) |
+| `chat.new` | `profile?` | `view` | Start a new side chat on the profile (default: the open one) |
+| `chat.compact` | | | Ask Hermes to compact the open chat; a `view` follows |
+| `history.more` | | `messages`, `has_more` | Older messages of the open chat, oldest first, to put above the current ones |
+| `sessions.list` | `profile`, `query?`, `limit?`, `offset?` | `sessions` | Conversations on a profile, most recent first. Automation (cron and the like) is left out |
+| `answer` | `id`, `choice?` or `text?` | | Answer a prompt. Approvals accept only `once` and `deny` |
+| `link.preview` | `url` | `preview` | `{url, title, description, site, favicon, image}`; the pictures are `/proxy/image` paths or null |
+| `speak` | `message_id` | `id` | Read a message aloud; `speech.*` events follow |
+| `speak.stop` | | | Stop speaking |
+| `settings.set` | `changes` | `settings` | Change settings (keys below) |
+| `setup` | `url` | | Set the Hermes address. A bare name is tried as `https://` and then `http://...:9119` |
+| `signin` | `username`, `password`, `remember` | | Sign in. With `remember`, the password is kept to sign in again by itself |
+| `signout` | | | Forget the session and any saved password |
+| `retry` | | | Try to connect now instead of waiting |
+| `status` | | `status` | The `hello` snapshot again |
+| `alive` | | | The UI is responsive. The kiosk watchdog restarts Chromium after 30 s without one |
 
-| Key | Values |
-|---|---|
-| `theme` | `auto` (light by day, dark at night), `light`, `dark` |
-| `accent`, `background`, `surface`, `text` | `#rrggbb`, or `null` to follow the theme (`accent`: the critter's colour) |
-| `font` | `rounded`, `mono`, `serif`, `pixel`, or a path to a `.ttf` on the device |
-| `text_size` | `small`, `medium`, `large`, or pixels from 10 to 40 |
-| `corners` | `round`, `soft`, `square` |
-| `fun` | `true`, or `false` for a plain look with no critter |
-| `critter_size` | `small`, `medium`, `large` |
-| `speak` | `true` to read replies aloud |
-| `greeting` | a line for the home screen, or `null` |
-| `fresh_after_min` | idle minutes before the next visit starts a fresh conversation; `0` never does. Default 20 |
+### Settings
 
-`look.set` accepts colour words (`"red"`) and stores them as hex. The agent changes the same file
-when asked to, through the `hermlet` skill; devices notice within seconds, and at once when the
-change is made during a conversation on that device.
+Kept by the service in `$LANTERN_HOME/settings.json`, so they survive restarts and updates.
 
-After `fresh_after_min` idle minutes the service starts a new conversation by itself and sends a
-`chat` event with an empty list. The old conversation stays in the history.
-
-## The persona
-
-```json
-{"version": 1, "seed": "9f2c...", "name": "Juso", "species": "bear",
- "palette": {"body": "#d888cc", "shade": "#c559c4", "outline": "#412343", "accent": "#e06788",
-             "eye": "#20131e", "cheek": "#f28899", "white": "#ffffff"},
- "legend": {".": null, "b": "body", "s": "shade", "o": "outline", "a": "accent",
-            "e": "eye", "c": "cheek", "w": "white"},
- "sprite": {"w": 16, "h": 16, "frames": {"idle": ["................", "..."], "blink": [...],
-            "talk": [...], "think": [...], "happy": [...], "sleep": [...]}}}
-```
-
-Each frame is `h` strings of `w` legend characters; `.` is see-through. To draw it, look each
-character up in `legend`, then that name in `palette`. No image decoder is needed, which is why
-it fits on anything from a terminal (`hermlet critter`) to an LED matrix.
-
-## From Python
-
-`hermlet.connect()` wraps all of the above; see its docstrings (`src/hermlet/client.py`).
-
-| Call | Does |
-|---|---|
-| `h.send(text, files=[...])` | Send, return at once |
-| `h.ask(text, files=[...])` | Send and return the answer |
-| `h.events()` | Iterate over events |
-| `@h.on("reply")`, `h.run_forever()` | Call a function per event |
-| `@h.action(name, description, params)` | Offer an action (plugin mode) |
-| `h.sessions()`, `h.session_messages(id)`, `h.resume(id)` | History |
-| `h.cancel()`, `h.new_session()`, `h.answer(id, text)` | Control |
-| `h.talk_start()`, `h.talk_stop()` | Voice |
-| `h.set_look(accent="red", font="mono")` | Restyle every device (or `this_device_only=True`) |
-| `h.set_persona("Pib", "teal")`, `h.suggest_name()` | Name and colour the critter |
-| `h.status`, `h.state`, `h.refresh()` | The snapshot |
-| `h.request(op, **fields)` | Any op, by name |
+| Key | Values | Default |
+|---|---|---|
+| `text_size` | `compact`, `comfortable`, `large` | `comfortable` |
+| `theme` | `dark`, `light`, `auto` | `dark` |
+| `sounds` | bool: thinking sounds | `false` |
+| `sound_volume`, `speech_volume` | 0 to 1 | `0.4`, `0.8` |
+| `read_aloud` | bool: speak each reply as it finishes | `false` |
+| `brightness` | 0.05 to 1 | `0.8` |
+| `dim_after_s`, `off_after_s` | seconds; 0 never | `120`, `600` |
+| `quiet_start`, `quiet_end` | `"HH:MM"` | `"23:00"`, `"07:00"` |
+| `touch_keyboard` | `auto`, `always` | `auto` |
+| `default_profile` | a profile name | `default` |

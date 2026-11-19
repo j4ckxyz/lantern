@@ -1,0 +1,4 @@
+# Compressed swap in RAM instead of a swap file on the SD card (installed as /etc/default/zramswap).
+ALGO=zstd
+PERCENT=25
+PRIORITY=100
