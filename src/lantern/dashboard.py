@@ -30,6 +30,7 @@ from .errors import LanternError, NeedsSignIn
 log = logging.getLogger("lantern.dashboard")
 
 SOURCE = "lantern"
+COMMAND_TIMEOUT_S = 45
 BOT_CHAT_TITLE = "Bot Chat"
 PING_EVERY_S = 15
 SILENCE_LIMIT_S = 45
@@ -407,8 +408,10 @@ class Hermes:
         with a ``message`` to submit, ``prefill`` with a ``message`` for the box, or ``alias``."""
         name, _, arg = text.strip().lstrip("/").partition(" ")
         try:
-            result = await self.gateway.call("slash.exec", timeout=120, session_id=sid, command=text.strip(),
-                                             profile=profile)
+            # Without the leading "/", as Hermes's desktop app sends it. Commands Hermes cannot answer
+            # in-process start its command worker, which can be slow (or stuck) on some hosts.
+            result = await self.gateway.call("slash.exec", timeout=COMMAND_TIMEOUT_S, session_id=sid,
+                                             command=text.strip().lstrip("/"), profile=profile)
         except RpcError as exc:
             if exc.code in (4018, -32601):
                 result = await self.gateway.call("command.dispatch", timeout=120, name=name.lower(),
@@ -418,6 +421,11 @@ class Hermes:
                 raise LanternError(f"/{name} is not available from the desk." + (f" {detail}" if detail else "")) from None
             else:
                 raise
+        except LanternError as exc:
+            if "did not answer in time" in str(exc):
+                raise LanternError(f"Hermes did not finish /{name} in time. Commands that need Hermes's command "
+                                   "worker can be slow to start; try again in a minute.") from None
+            raise
         if not result.get("type"):
             result = {**result, "type": "exec"}
         return result

@@ -127,6 +127,38 @@ def cmd_signout(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pair(args: argparse.Namespace) -> int:
+    """Open the setup page for a phone and wait until the desk is signed in from it. Handy when the
+    desk has no screen attached, or for setting it up from the sofa."""
+    with connect() as h:
+        pairing = h.request("pair.start")["pairing"]
+        say("On your phone, open one of these and enter the code:")
+        for address in pairing["addresses"]:
+            say(f"  {address}")
+        say(f"code:  {pairing['code']}   (or open {pairing['url']})")
+        say(f"It works for {pairing['expires_in'] // 60} minutes. Waiting...")
+        try:
+            for event in h.events(timeout=pairing["expires_in"] + 5):
+                if event.get("type") != "pair":
+                    continue
+                state = event["pairing"]["state"]
+                if state == "working":
+                    say("Got the details; signing in.")
+                elif state == "done":
+                    say("Signed in.")
+                    return 0
+                elif state in ("failed", "stopped"):
+                    say(event["pairing"].get("error") or "Pairing ended.")
+                    return 1
+                elif event["pairing"].get("error"):
+                    say(event["pairing"]["error"])
+        except KeyboardInterrupt:
+            h.request("pair.stop")
+            say("Stopped.")
+            return 1
+    return 1
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     with connect() as h:
         status = h.request("status")["status"]
@@ -233,6 +265,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p = sub.add_parser("signout", help="forget the session and any saved password")
     p.set_defaults(fn=cmd_signout)
 
+    p = sub.add_parser("pair", help="set the desk up from a phone: prints an address and a code")
+    p.set_defaults(fn=cmd_pair)
     p = sub.add_parser("status", help="what the desk is doing")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_status)

@@ -352,6 +352,17 @@ class Conversation:
         if not self.sid:
             await self.open(self.view["profile"], self.view.get("session_id") or None, kind=self.view.get("kind", "main"))
         text = text.strip()
+        if text.split(" ", 1)[0].lower() in ("/help", "/commands"):
+            # Answered here from the catalogue, as Hermes's desktop app does: Hermes would start its
+            # command worker for it, which can be slow.
+            rows = await self.commands()
+            width = max((len(r["name"]) for r in rows), default=0) + 2
+            output = "\n".join(f"{r['name']:<{width}}{r['description']}" for r in rows)
+            message = {"id": f"k{uuid.uuid4().hex[:12]}", "role": "assistant", "text": output or "No commands.",
+                       "ts": time.time(), "media": [], "command": "/help"}
+            self.view["messages"].append(message)
+            self.emit({"type": "message", "message": message})
+            return {"output": output}
         result = await self.hermes.run_command(self.view["profile"], self.sid, text)
         if result.get("type") == "alias" and result.get("target"):
             arg = text.partition(" ")[2]

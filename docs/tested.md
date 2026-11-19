@@ -25,6 +25,16 @@ main chat was only read.
 | Compaction (`session.compress`) | Works on a side chat |
 | Deleting a session | `session.delete` over the WebSocket works; `DELETE /api/sessions/{id}` answers 409 `client_upgrade_required` |
 
+Slash commands against the live Hermes (19 November 2026), in a throwaway side chat (Hermes does
+not store an empty side chat, so nothing was left behind):
+
+| Check | Result |
+|---|---|
+| `commands.catalog` | 215 commands (115 of them skills); 38 carry a `desktop` flag (`advanced`, `composer-voice`, `hidden`, `settings`, `terminal`) and are left out on the desk |
+| `/usage`, `/status`, `/context` through `slash.exec` | Answered in 0.0 to 0.3 s |
+| `/help` through `slash.exec` | **Never answered**: Hermes hands it to its command worker, which did not start on this host, and other calls on the session waited behind it. The desk now answers `/help` itself from the catalogue (as Hermes's desktop app does) and gives up on any command after 45 s with a plain message |
+| Sending `"/usage"` with its leading slash | Stalled once; the desk now sends it without, as the desktop app does |
+
 Checked against Hermes v0.22.5's source (tag `v0.22.5`, commit `bf0203a7`), not run live: the
 slash-command calls (`commands.catalog`, `slash.exec`, `command.dispatch`), the
 session-authority fixes, `approval.settled`, the speech fallback and `thinking.delta`.
@@ -33,7 +43,7 @@ Not yet run live:
 - Approvals and questions from the agent.
 - Media the agent sends (`MEDIA:` tags) and link previews of real pages.
 - Opening the main chat from the desk.
-- Slash commands against a real Hermes, and a session-authority socket at all.
+- Commands that need Hermes's command worker, and a session-authority socket at all.
 - Setting up from a real phone over a real home network.
 - Whether a `platform_hints.lantern` entry shapes replies there (milestone 0, needs the hint added to
   your `config.yaml` first).
