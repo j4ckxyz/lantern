@@ -5,10 +5,17 @@ const shots = 'test-results/real'
 async function open(page: Page) {
   await page.goto('/?t=dev')
   await expect(page.locator('textarea')).toBeVisible()
-  // The service reopens the chat that was open last; start each test from the main chat.
-  await page.getByRole('button', { name: /^Hermes, / }).click()
-  await page.locator('.list-item').filter({ hasText: 'Hermes' }).first().click()
+  // The simple desk is always the default profile's main chat.
   await expect(page.getByText("parents' evening")).toBeVisible()
+}
+
+/** Profiles and side chats on or off, through Settings, as a person would. */
+async function conversations(page: Page, on: boolean) {
+  await page.keyboard.press('Control+,')
+  const toggle = page.getByRole('switch', { name: /Profiles and side chats/ })
+  if ((await toggle.getAttribute('aria-checked')) !== String(on)) await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', String(on))
+  await page.keyboard.press('Escape')
 }
 
 async function say(page: Page, text: string) {
@@ -25,7 +32,7 @@ test.describe.configure({ mode: 'serial' })
 
 test('opens on the main chat from the real service, with the avatar', async ({ page }) => {
   await open(page)
-  await expect(page.getByRole('button', { name: /^Hermes, Main chat/ })).toBeVisible()
+  await expect(page.locator('.presence, .topbar')).toContainText('Hermes')
   const avatar = page.locator('.presence, .topbar').locator('img').first()
   await expect(avatar).toBeVisible()
   expect(await avatar.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0)
@@ -74,10 +81,24 @@ test('approvals: only Allow once or Deny', async ({ page }) => {
 
 test('a new chat gets its title from Hermes', async ({ page }) => {
   await open(page)
+  await conversations(page, true)
   await page.getByRole('button', { name: 'New chat' }).click()
   await expect(page.getByText("parents' evening")).toHaveCount(0)
   await say(page, 'plan a quiet weekend')
   await expect(page.locator('.presence, .topbar')).toContainText('plan a quiet weekend')
+  // Back to the simple desk: it returns to the main chat by itself.
+  await conversations(page, false)
+  await expect(page.getByText("parents' evening")).toBeVisible()
+})
+
+test('slash commands come from Hermes and run there', async ({ page }) => {
+  await open(page)
+  await page.locator('textarea').fill('/')
+  await expect(page.getByRole('option', { name: /\/usage/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: /\/model/ })).toHaveCount(0)
+  await page.locator('textarea').fill('/usage')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.msg-command').last()).toContainText('1,234 tokens in')
 })
 
 test('reading a reply aloud plays streamed speech', async ({ page }) => {

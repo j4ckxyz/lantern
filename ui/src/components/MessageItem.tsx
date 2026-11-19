@@ -21,7 +21,24 @@ export function UserMessage({ m }: { m: Message }) {
   )
 }
 
+function CommandResult({ m }: { m: Message }) {
+  return (
+    <article class="msg-command" data-msg={m.id}>
+      <div class="cmd-head">
+        <span class="cmd-name">{m.command}</span>
+        <time>{clock(m.ts)}</time>
+      </div>
+      <pre class="cmd-out">{m.text}</pre>
+    </article>
+  )
+}
+
 export function AgentMessage({ m, pacing, speaking }: { m: Message; pacing: boolean; speaking: boolean }) {
+  if (m.command) return <CommandResult m={m} />
+  return <AgentReply m={m} pacing={pacing} speaking={speaking} />
+}
+
+function AgentReply({ m, pacing, speaking }: { m: Message; pacing: boolean; speaking: boolean }) {
   const [pacer] = useState(() => (pacing ? adoptPacer() : null))
   const [typing, setTyping] = useState(pacing)
   const links = !m.interim && !typing ? extractLinks(m.text) : []

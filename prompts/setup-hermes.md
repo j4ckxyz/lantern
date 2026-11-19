@@ -10,32 +10,44 @@ It talks to the Hermes dashboard's own API, the same way the Hermes desktop app 
 remote backend, so nothing new needs installing. Please get this host ready and tell me what you
 did.
 
-**The goal.** From another machine on my Tailscale network, this must work:
+**The goal.** The desk must be able to reach your dashboard's API and sign in to it. There are
+three ways; ask me which one I want if it is not obvious from how this host is set up:
 
-```sh
-curl -s https://<this-host>.<my-tailnet>.ts.net/api/status
-```
+- **Tailscale (recommended: the easiest, and encrypted end to end).** From another machine on my
+  tailnet, `curl -s https://<this-host>.<my-tailnet>.ts.net/api/status` works. A plain
+  `http://<tailscale-name>:9119` is fine too if HTTPS is not set up.
+- **My home network.** The desk and this host are on the same network, and
+  `curl -s http://<this-host's LAN address>:9119/api/status` works from another machine on it.
+  Tell me plainly that my password will cross my home network unencrypted when the desk signs in.
+- **My own https address, behind a reverse proxy** (Caddy, nginx and the like), for example
+  `https://hermes.example.com/api/status`.
 
-and the JSON it returns must contain `"auth_required": true` and `"basic"` in `auth_providers`.
-(A plain `http://<tailscale-name>:9119` address is fine too if HTTPS is not set up.)
+Whichever way, the JSON it returns must contain `"auth_required": true` and `"basic"` in
+`auth_providers`.
 
 **What that takes.** Check each of these and fix only what is missing:
 
-1. **Tailscale** is installed and this host is logged in (`tailscale status`). If it is not,
-   stop and tell me: I have to log in myself.
+1. **For Tailscale:** it is installed and this host is logged in (`tailscale status`). If it is
+   not, stop and tell me: I have to log in myself.
 2. **The dashboard has a username and password.** That is the `HERMES_DASHBOARD_BASIC_AUTH_USERNAME`,
    `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` and `HERMES_DASHBOARD_BASIC_AUTH_SECRET` settings in your
-   `.env` (the secret is 32 or more random bytes, for example from `openssl rand -base64 32`).
-   If they are not set, ask me for the username and password I want. Do not invent a password
-   and do not print an existing one back to me.
+   `.env` (the secret is 32 or more random bytes, for example from `openssl rand -base64 32`;
+   without it every sign-in ends when the dashboard restarts). If they are not set, ask me for
+   the username and password I want. Do not invent a password and do not print an existing one
+   back to me.
 3. **`hermes dashboard` runs all the time** and survives a reboot (a systemd service is the
-   usual way), listening somewhere my tailnet can reach and never on the public internet. Your
-   own documentation covers this under "Web Dashboard" → "Connecting Hermes Desktop to a remote
-   backend"; follow that, including the part about the Host header having to match the address
-   I will use.
-4. **The address is reachable over Tailscale.** Either the dashboard listens on this host's
-   Tailscale address, or `tailscale serve` publishes it on the tailnet over HTTPS. Use
-   `tailscale serve`, not `tailscale funnel`: funnel would put it on the public internet.
+   usual way). Your own documentation covers this under "Web Dashboard" → "Connecting Hermes
+   Desktop to a remote backend"; follow it, including the part about the Host header having to
+   match the address I will use. Where it listens depends on the way chosen above:
+   - **Tailscale:** on this host's Tailscale address, or on loopback with `tailscale serve`
+     publishing it on the tailnet over HTTPS. Use `tailscale serve`, never `tailscale funnel`:
+     funnel would put it on the public internet.
+   - **Home network:** `hermes dashboard --host 0.0.0.0` (sign-in is then required
+     automatically). Check the router does not forward port 9119 from the internet.
+   - **Reverse proxy:** the dashboard on loopback, `dashboard.public_url` set to the https address,
+     and `dashboard.trusted_proxies` listing the proxy if it runs on another machine. The proxy
+     must pass WebSocket upgrades for `/api/ws` and `/api/audio/speak-stream`.
+4. **Nothing else is exposed:** no port forwarding of 9119, and authentication stays on.
 5. **Tell yourself about the desk.** Add this to `config.yaml` (keep anything already under
    `platform_hints`), so replies suit a small screen:
 
@@ -52,9 +64,11 @@ and the JSON it returns must contain `"auth_required": true` and `"basic"` in `a
    "Enable Edge TTS with: hermes pm install --extra edge-tts"). Free local options are fine to set
    up; ask before a paid provider.
 
-**When you are done**, run the `curl` above from this host against the Tailscale address and show
-me the two fields. Then tell me the exact address to type into the desk's setup screen.
+**When you are done**, run the `curl` for the way I chose and show me the two fields. Then tell me
+the exact address to type into the desk's setup screen (or into the page the desk shows on my
+phone).
 
-**Do not:** expose the dashboard to the internet, turn authentication off, change my model or
+**Do not:** expose the dashboard to the internet other than through my own https reverse proxy,
+turn authentication off, change my model or
 provider settings, or restart the messaging gateway unless one of the steps above needs it (say
 so first if it does).

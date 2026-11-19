@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { ago, domain, sourceLabel } from '../format'
-import { Back, ChevronRight, Chats, Close, Compact, Compose, Search, Settings as SettingsIcon } from '../icons'
+import { Back, ChevronRight, Chats, Close, Compact, Compose, Keyboard, Search, Settings as SettingsIcon, Speaker } from '../icons'
 import type { AppState } from '../protocol/state'
 import type { Profile, Session, Settings } from '../protocol/types'
 import { client, overlays, run } from '../ui'
@@ -139,31 +139,103 @@ function SessionsView({ s, profile, onBack }: { s: AppState; profile: Profile; o
 
 export function MenuSheet({ s }: { s: AppState }) {
   const ready = s.link === 'ready'
+  const full = s.settings.conversations
   return (
     <Sheet label="Menu">
       <div class="sheet-body">
-        <button class="menu-item" disabled={!ready} onClick={async () => {
-          overlays.closeAll()
-          await run('chat.new', {})
-        }}>
-          <Compose /> New chat
-        </button>
-        <button class="menu-item" disabled={!ready || !s.view?.messages.length} onClick={async () => {
-          overlays.closeAll()
-          await run('chat.compact')
-        }}>
-          <Compact />
+        {full ? (
+          <>
+            <button class="menu-item" disabled={!ready} onClick={async () => {
+              overlays.closeAll()
+              await run('chat.new', {})
+            }}>
+              <Compose /> New chat
+            </button>
+            <button class="menu-item" disabled={!ready || !s.view?.messages.length} onClick={async () => {
+              overlays.closeAll()
+              await run('chat.compact')
+            }}>
+              <Compact />
+              <span>
+                Compact this chat
+                <small>Summarise older messages so Hermes starts fresh, keeping the gist.</small>
+              </span>
+            </button>
+            <button class="menu-item" onClick={() => overlays.open({ kind: 'profiles', profile: s.view?.profile })}>
+              <Chats /> Conversations
+            </button>
+          </>
+        ) : null}
+        <button
+          class="menu-item"
+          role="switch"
+          aria-checked={s.settings.read_aloud}
+          onClick={() => void run('settings.set', { changes: { read_aloud: !s.settings.read_aloud } })}
+        >
+          <Speaker />
           <span>
-            Compact this chat
-            <small>Summarise older messages so Hermes starts fresh, keeping the gist.</small>
+            Read replies aloud
+            <small>{s.settings.read_aloud ? 'On: each reply is spoken as it finishes.' : 'Off: tap the speaker on a reply to hear it.'}</small>
           </span>
-        </button>
-        <button class="menu-item" onClick={() => overlays.open({ kind: 'profiles', profile: s.view?.profile })}>
-          <Chats /> Conversations
+          <span class={`switch${s.settings.read_aloud ? ' on' : ''}`} aria-hidden="true" />
         </button>
         <button class="menu-item" onClick={() => overlays.open({ kind: 'settings' })}>
           <SettingsIcon /> Settings
         </button>
+        <button class="menu-item" onClick={() => overlays.open({ kind: 'shortcuts' })}>
+          <Keyboard /> Keyboard shortcuts
+        </button>
+      </div>
+    </Sheet>
+  )
+}
+
+/** One key combination, drawn as keys: `combo('Ctrl', ',')`. */
+function combo(...keys: string[]) {
+  return (
+    <span class="combo">
+      {keys.map((k, i) => (
+        <span key={k}>
+          {i ? '+' : ''}
+          <kbd>{k}</kbd>
+        </span>
+      ))}
+    </span>
+  )
+}
+
+type KeyRow = { keys: preact.ComponentChildren; what: string; full?: boolean }
+
+const KEYS: KeyRow[] = [
+  { keys: 'Type anywhere', what: 'Write to Hermes' },
+  { keys: combo('Enter'), what: 'Send' },
+  { keys: combo('Shift', 'Enter'), what: 'New line' },
+  { keys: <>{combo('↑')} in an empty box</>, what: 'Bring back your last message' },
+  { keys: combo('/'), what: 'Hermes commands' },
+  { keys: combo('Esc'), what: 'Stop Hermes, or close this' },
+  { keys: <>{combo('Page Up')} {combo('Page Down')}</>, what: 'Scroll the conversation' },
+  { keys: <>{combo('Ctrl', '↑')} {combo('Ctrl', '↓')}</>, what: 'Previous or next message' },
+  { keys: combo('Ctrl', 'End'), what: 'Jump to the latest' },
+  { keys: combo('Tab'), what: 'Move between buttons' },
+  { keys: combo('Ctrl', 'N'), what: 'New chat', full: true },
+  { keys: combo('Ctrl', 'K'), what: 'Profiles and conversations', full: true },
+  { keys: combo('Ctrl', ','), what: 'Settings' },
+  { keys: combo('?'), what: 'This list' },
+]
+
+export function ShortcutsSheet({ s }: { s: AppState }) {
+  return (
+    <Sheet tall label="Keyboard shortcuts">
+      <Head title="Keyboard shortcuts" />
+      <div class="sheet-body">
+        <dl class="keys">
+          {KEYS.filter((r) => !r.full || s.settings.conversations).map((r) => (
+            <div key={r.what} class="key-row">
+              <dt>{r.keys}</dt>
+              <dd>{r.what}</dd>
+            </div>
+          ))}
+        </dl>
       </div>
     </Sheet>
   )
@@ -195,6 +267,26 @@ export function SettingsSheet({ s }: { s: AppState }) {
           <h3>Theme</h3>
           <Segmented value={s.settings.theme} options={[['dark', 'Dark'], ['light', 'Light'], ['auto', 'Auto']]} onPick={(theme) => set({ theme })} />
           <p class="note">Auto is light from 07:00 to 19:00 and dark the rest of the time.</p>
+        </div>
+        <div class="group">
+          <h3>Conversations</h3>
+          <button
+            class="menu-item panel-switch"
+            role="switch"
+            aria-checked={s.settings.conversations}
+            onClick={() => void set({ conversations: !s.settings.conversations })}
+          >
+            <Chats />
+            <span>
+              Profiles and side chats
+              <small>
+                {s.settings.conversations
+                  ? 'On: New chat, side chats, compaction and every profile are on the screen.'
+                  : 'Off: the desk is one conversation with Hermes, the same main chat as your phone and computer.'}
+              </small>
+            </span>
+            <span class={`switch${s.settings.conversations ? ' on' : ''}`} aria-hidden="true" />
+          </button>
         </div>
         <div class="group">
           <h3>Hermes</h3>

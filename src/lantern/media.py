@@ -143,6 +143,7 @@ class Registry:
         self._items: Dict[str, Dict[str, Any]] = {}
         self._cache: "collections.OrderedDict[str, Tuple[bytes, str]]" = collections.OrderedDict()
         self._cached = 0
+        self._clips: Dict[str, Tuple[bytes, str]] = {}
 
     def add(self, profile: str, path: str, voice: bool = False) -> Dict[str, Any]:
         media_id = hashlib.sha256(f"{profile}\0{path}".encode()).hexdigest()[:20]
@@ -159,11 +160,23 @@ class Registry:
         self._items[media_id] = {"profile": profile, "path": path, **item}
         return item
 
+    def add_bytes(self, data: bytes, mime: str) -> Dict[str, Any]:
+        """Something the service already holds (a spoken clip), served like any other media.
+        Only the last few are kept."""
+        media_id = "c" + hashlib.sha256(data).hexdigest()[:19]
+        item = {"id": media_id, "kind": "audio", "name": "speech", "mime": mime, "url": f"/media/{media_id}"}
+        self._clips[media_id] = (data, mime)
+        while len(self._clips) > 3:
+            self._clips.pop(next(iter(self._clips)))
+        return item
+
     def get(self, media_id: str) -> Optional[Dict[str, Any]]:
         return self._items.get(media_id)
 
     async def fetch(self, http, media_id: str) -> Tuple[bytes, str]:
         """The bytes and type of one item, from the cache or from Hermes."""
+        if media_id in self._clips:
+            return self._clips[media_id]
         if media_id in self._cache:
             self._cache.move_to_end(media_id)
             return self._cache[media_id]

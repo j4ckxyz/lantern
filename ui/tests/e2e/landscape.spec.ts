@@ -62,7 +62,7 @@ for (const theme of ['dark', 'light'] as const) {
     })
 
     test('profiles drawer', async ({ page }) => {
-      await openChat(page, { theme })
+      await openChat(page, { theme, conversations: true })
       await page.locator('.p-who').click()
       await expect(page.getByRole('dialog', { name: 'Profiles and conversations' })).toBeVisible()
       await page.waitForTimeout(400)
@@ -97,6 +97,29 @@ for (const theme of ['dark', 'light'] as const) {
       await openApp(page, { mock: 'setup', theme })
       await expect(page.getByRole('heading', { name: 'Connect to your Hermes' })).toBeVisible()
       await expect(page).toHaveScreenshot(`l-setup-${theme}.png`)
+    })
+
+    test('setting up from a phone', async ({ page }) => {
+      await openApp(page, { mock: 'signin', theme })
+      await page.getByRole('button', { name: 'Use your phone instead' }).click()
+      await expect(page.locator('.phone-code')).toHaveText('K7Q-4MP')
+      await expect(page).toHaveScreenshot(`l-phone-${theme}.png`)
+    })
+
+    test('slash command palette', async ({ page }) => {
+      await openChat(page, { theme })
+      await page.locator('textarea').fill('/')
+      await expect(page.getByRole('option', { name: /\/usage/ })).toBeVisible()
+      await page.waitForTimeout(300)
+      await expect(page).toHaveScreenshot(`l-palette-${theme}.png`)
+    })
+
+    test('thinking', async ({ page }) => {
+      await openChat(page, { theme })
+      await page.locator('textarea').fill('slow one')
+      await page.keyboard.press('Enter')
+      await expect(page.locator('.p-status .thinking')).toBeVisible()
+      await expect(page).toHaveScreenshot(`l-thinking-${theme}.png`)
     })
 
     test('offline', async ({ page }) => {

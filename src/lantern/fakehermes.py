@@ -50,6 +50,30 @@ PLAIN_PARAMS: Dict[str, set] = {
     "session.compress": {"session_id", "profile", "focus_topic"},
     "session.delete": {"session_id", "profile"},
     "prompt.submit": {"session_id", "profile", "text", "surface"},
+    "commands.catalog": {"session_id", "profile"},
+    "slash.exec": {"session_id", "command", "profile"},
+    "command.dispatch": {"name", "arg", "session_id", "profile"},
+}
+
+class _RpcFail(Exception):
+    def __init__(self, code: int, message: str):
+        super().__init__(message)
+        self.code, self.message = code, message
+
+
+# A small catalogue in the shape of Hermes's ``commands.catalog``: some for every client, some the
+# desktop app keeps out of its menus (``desktop`` set), which the desk leaves out too.
+CATALOG = {
+    "pairs": [["/help", "List the commands"], ["/usage", "Tokens used in this session"],
+              ["/status", "What this session is doing"], ["/title", "Name this session"],
+              ["/personality", "Change how Hermes talks"], ["/plan", "Plan before acting"],
+              ["/model", "Switch the model"], ["/shell", "Open a shell"]],
+    "sub": {"/personality": ["concise", "friendly", "formal"]},
+    "canon": {"/h": "/help"},
+    "commands": {"/title": {"argument_mode": "text"}, "/personality": {"argument_mode": "options"},
+                 "/plan": {"argument_mode": "text"}, "/model": {"desktop": "advanced"},
+                 "/shell": {"desktop": "terminal"}},
+    "categories": [], "skills": {}, "skill_count": 0,
 }
 
 LONG_REPLY = """## Your week at a glance
@@ -474,6 +498,8 @@ class FakeHermes:
             else:
                 try:
                     reply = {"result": await self._method(ws, method, params)}
+                except _RpcFail as exc:
+                    reply = {"error": {"code": exc.code, "message": exc.message}}
                 except LookupError as exc:
                     reply = {"error": {"code": 4007, "message": str(exc)}}
         await ws.send_str(json.dumps({"jsonrpc": "2.0", "id": frame["id"], **reply}))
@@ -547,6 +573,29 @@ class FakeHermes:
             summary = {"id": 0, "role": "assistant", "content": "Summary of the earlier conversation.", "timestamp": time.time()}
             self.messages[live["stored"]] = [summary] + rows[-2:]
             return {"status": "compressed", "removed": removed, "compressed": True}
+        if method == "commands.catalog":
+            return CATALOG
+        if method == "slash.exec":
+            name, _, arg = str(p.get("command") or "").strip().lstrip("/").partition(" ")
+            name = {"h": "help"}.get(name.lower(), name.lower())
+            if name == "plan":
+                raise _RpcFail(4018, "skill command: use command.dispatch for /plan")
+            if name == "help":
+                return {"output": "\n".join(f"{n}  {d}" for n, d in CATALOG["pairs"])}
+            if name == "usage":
+                return {"output": "This session: 1,234 tokens in, 567 out."}
+            if name == "status":
+                return {"output": "Idle. Model: example-model."}
+            if name == "title":
+                return {"output": f"Title set: {arg.strip()}" if arg.strip() else "Give a title after /title."}
+            if name == "personality":
+                return {"output": f"Personality: {arg.strip() or 'default'}"}
+            return {"output": f"Unknown command: /{name}"}
+        if method == "command.dispatch":
+            if p.get("name") == "plan":
+                topic = str(p.get("arg") or "the next step")
+                return {"type": "send", "message": f"Before acting, write a short plan for: {topic}", "display": f"/plan {topic}"}
+            return {"type": "exec", "output": f"Ran /{p.get('name')}"}
         if method == "prompt.submit":
             live = self.live.get(p["session_id"])
             if live is None:

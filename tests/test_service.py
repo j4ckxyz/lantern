@@ -299,3 +299,100 @@ def test_opening_the_open_chat_keeps_it_and_a_send_waits_for_a_switch(run, short
             await screen.wait("turn.end", after=start)
             assert fake.messages["disc-1"][-2]["content"] == "hello after switching"
     run(main())
+
+
+def test_slash_commands_from_hermes(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            listed = await screen.op("commands.list")
+            names = [c["name"] for c in listed["commands"]]
+            assert names[0] == "/stop" and "/usage" in names and "/help" in names
+            assert "/model" not in names and "/shell" not in names  # kept out of Hermes's own app menus too
+            assert next(c for c in listed["commands"] if c["name"] == "/personality")["options"] == ["concise", "friendly", "formal"]
+            assert "/new" not in names  # the simple desk keeps one conversation
+
+            start = len(screen.events)
+            result = await screen.op("command", text="/usage")
+            assert result["ok"] and "1,234 tokens" in result["output"]
+            card = await screen.wait("message", after=start, where=lambda e: e["message"].get("command"))
+            assert card["message"]["command"] == "/usage" and "567 out" in card["message"]["text"]
+
+            # A command that becomes a prompt: Hermes is sent the expansion, the screen shows the command.
+            start = len(screen.events)
+            await screen.op("command", text="/plan the move")
+            mine = await screen.wait("message", after=start, where=lambda e: e["message"]["role"] == "user")
+            assert mine["message"]["text"] == "/plan the move"
+            await screen.wait("turn.end", after=start)
+            submitted = [p["text"] for m, p in fake.rpc_log if m == "prompt.submit"]
+            assert submitted[-1] == "Before acting, write a short plan for: the move"
+
+            refused = await screen.op("command", text="/new")
+            assert not refused["ok"] and "Profiles and side chats" in refused["error"]
+            await screen.op("settings.set", changes={"conversations": True})
+            assert "/new" in [c["name"] for c in (await screen.op("commands.list"))["commands"]]
+            made = await screen.op("command", text="/new")
+            assert made["ok"] and made["view"]["kind"] == "session"
+    run(main())
+
+
+def test_setup_check_finds_the_dashboard_and_repairs_the_address(run, short_tmp, desk_ctx):
+    async def main():
+        async with desk_ctx(short_tmp) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "ready")
+            port = fake.port
+            found = await screen.op("setup.check", url=f"  HTTP//127.0.0.1:{port}/sessions  ")
+            assert found["url"] == f"http://127.0.0.1:{port}" and found["version"] == "0.22.5"
+            assert found["insecure"] is False
+            nothing = await screen.op("setup.check", url="127.0.0.1:9")
+            assert nothing["url"] is None and nothing["tried"]
+            bad = await screen.op("setup.check", url="https://ada:pw@example.com")
+            assert not bad["ok"] and "Leave the username" in bad["error"]
+    run(main())
+
+
+def _post_form(url: str, fields):
+    from urllib.parse import urlencode
+    req = urllib.request.Request(url, data=urlencode(fields).encode(), method="POST",
+                                 headers={"Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return r.status, r.read().decode()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode()
+
+
+def test_setting_up_from_a_phone(run, short_tmp, desk_ctx, monkeypatch):
+    import socket as _socket
+    with _socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    monkeypatch.setenv("LANTERN_PAIR_PORT", str(port))
+
+    async def main():
+        async with desk_ctx(short_tmp, signed_in=False) as (fake, service, screen):
+            await screen.wait("link", where=lambda e: e["state"] == "signin")
+            started = await screen.op("pair.start")
+            pairing = started["pairing"]
+            assert pairing["state"] == "waiting" and len(pairing["code"]) == 7 and "?k=" in pairing["url"]
+            page = f"http://127.0.0.1:{port}/"
+            loop = asyncio.get_running_loop()
+            status, _headers, body = await loop.run_in_executor(None, _get, page + "?k=" + pairing["url"].split("?k=")[1])
+            assert status == 200 and b'name="k"' in body and b"Set up your Lantern" in body
+
+            # A wrong code is refused; the right one (typed, any case and spacing) signs the desk in.
+            status, body = await loop.run_in_executor(None, _post_form, page, {
+                "code": "ZZZ-ZZZ", "url": fake.base, "username": "ada", "password": "pw", "remember": "on"})
+            assert status == 403 and "not the one on the desk" in body
+            status, body = await loop.run_in_executor(None, _post_form, page, {
+                "code": pairing["code"].lower().replace("-", " "), "url": fake.base, "username": "ada",
+                "password": "pw", "remember": "on"})
+            assert status == 200 and "The desk is signed in" in body
+            await screen.wait("link", where=lambda e: e["state"] == "ready", timeout=20)
+            done = await screen.wait("pair", where=lambda e: e["pairing"]["state"] == "done")
+            assert done
+            # The page is gone.
+            await asyncio.sleep(0.2)
+            with pytest.raises(OSError):
+                await loop.run_in_executor(None, _get, page)
+    run(main())

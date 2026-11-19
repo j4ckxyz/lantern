@@ -27,7 +27,8 @@ case "$ROTATE" in 0) TRANSFORM=normal ;; 90|180|270) TRANSFORM="$ROTATE" ;; *) T
 
 # cage starts even before a keyboard or touch panel appears (the Keychron may be on the Mac's slot).
 export WLR_LIBINPUT_NO_DEVICES=1
-export XCURSOR_SIZE=1
+# A normal pointer for a mouse; the page hides it when the mouse rests or the screen is touched.
+export XCURSOR_SIZE=24
 
 # Inside cage: turn the output first (cage has no option of its own for it), then start Chromium,
 # so the page opens at the turned size.

@@ -26,6 +26,8 @@ export interface OpenOptions {
   mock?: 'setup' | 'signin' | 'offline' | 'connecting' | 'empty'
   theme?: 'dark' | 'light'
   size?: 'compact' | 'comfortable' | 'large'
+  /** Profiles, side chats and New chat on screen (the desk's simple mode hides them). */
+  conversations?: boolean
 }
 
 export async function openApp(page: Page, opts: OpenOptions = {}): Promise<void> {
@@ -34,6 +36,7 @@ export async function openApp(page: Page, opts: OpenOptions = {}): Promise<void>
   if (opts.mock) q.set('mock', opts.mock)
   if (opts.theme) q.set('theme', opts.theme)
   if (opts.size) q.set('size', opts.size)
+  if (opts.conversations) q.set('conversations', '1')
   await page.goto(`/?${q}`)
   await page.evaluate(() => document.fonts.ready)
 }

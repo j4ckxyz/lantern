@@ -38,6 +38,9 @@ SETTINGS_DEFAULTS: Dict[str, Any] = {
     "quiet_end": "07:00",
     "touch_keyboard": "auto",
     "default_profile": "default",
+    # Off by default: the desk is one conversation with your agent, like talking to an assistant.
+    # On, it shows profiles, side chats, New chat and compaction.
+    "conversations": False,
 }
 
 _CHOICES = {
@@ -45,7 +48,7 @@ _CHOICES = {
     "theme": ("dark", "light", "auto"),
     "touch_keyboard": ("auto", "always"),
 }
-_BOOLS = ("sounds", "read_aloud")
+_BOOLS = ("sounds", "read_aloud", "conversations")
 _UNIT = {"sound_volume": (0.0, 1.0), "speech_volume": (0.0, 1.0), "brightness": (0.05, 1.0)}
 _SECONDS = ("dim_after_s", "off_after_s")
 _TIMES = ("quiet_start", "quiet_end")

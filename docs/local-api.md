@@ -46,7 +46,7 @@ Profile  {name, display_name, is_default, avatar: "/avatar/<name>" | null,
           main: {id, preview, last_active, message_count} | null}
 View     {profile, session_id, kind: "main" | "session", title, messages: [Message], has_more}
 Message  {id, role: "user" | "assistant", text, ts, media: [Media],
-          interim?: true, voice?: true, error?: "..."}
+          interim?: true, voice?: true, error?: "...", command?: "/usage"}
 Media    {id, kind: "image" | "audio" | "file", name, mime, size?, url: "/media/<id>",
           link?: "<the Hermes dashboard download address, for a phone>"}
 Turn     {id, started, text, status, tools: [Tool]}
@@ -109,6 +109,7 @@ out):
 | `settings` | `settings` | Settings changed |
 | `speech.start` | `id`, `message_id`, `sample_rate` | Spoken audio follows as binary frames: signed 16-bit little-endian mono PCM |
 | `speech.end` | `id`, `reason` (`done`, `stopped`, `error`), `error?` | No more audio for that `id` |
+| `speech.clip` | `id`, `message_id`, `url` | The whole reply as one clip (`/media/<id>`), for a Hermes voice that cannot stream; play it instead of PCM frames. `speech.end` follows straight away |
 
 A turn reads `turn.start` → (`turn.delta` | `turn.activity` | `prompt`)* → `message` → `turn.end`.
 Commentary before the answer arrives as a `message` with `interim: true`.
@@ -125,11 +126,14 @@ Commentary before the answer arrives as a `message` with `interim: true`.
 | `history.more` | | `messages`, `has_more` | Older messages of the open chat, oldest first, to put above the current ones |
 | `sessions.list` | `profile`, `query?`, `limit?`, `offset?` | `sessions` | Conversations on a profile, most recent first. Automation (cron and the like) is left out |
 | `answer` | `id`, `choice?` or `text?` | | Answer a prompt. Approvals accept only `once` and `deny` |
+| `commands.list` | | `commands` | Hermes's slash commands for the open chat's profile, as `{name, description, args, options?}` (`args`: null, `text`, `options` or `mixed`). Commands Hermes's own apps keep out of their menus (terminal-only, settings, hidden) are left out. The desk's own `/stop` comes first, and `/new` when conversations are on |
+| `command` | `text` (`/name arg`) | `output?`, `prefill?`, `notice?`, `sent?`, `view?` | Run a command. Output also arrives as a `message` with `command` set. A command that expands into a prompt is sent as a turn (the screen shows the command, Hermes gets the expansion) and answers `sent`. `prefill` is text for the message box |
 | `link.preview` | `url` | `preview` | `{url, title, description, site, favicon, image}`; the pictures are `/proxy/image` paths or null |
 | `speak` | `message_id` | `id` | Read a message aloud; `speech.*` events follow |
 | `speak.stop` | | | Stop speaking |
 | `settings.set` | `changes` | `settings` | Change settings (keys below) |
-| `setup` | `url` | | Set the Hermes address. A bare name is tried as `https://` and then `http://...:9119` |
+| `setup.check` | `url` | `url`, `version`, `tried`, `insecure` | Check what was typed before saving it. The service repairs typos (`https//`, a missing scheme, a pasted dashboard route), tries every likely address at once, and answers with the likeliest one that a Hermes dashboard answers on (`url` is null when none does). `insecure` is true for plain `http` outside this network or tailnet |
+| `setup` | `url` | | Set the Hermes address, after the same checks as `setup.check`. When nothing answers yet, the likeliest address is kept and tried again |
 | `signin` | `username`, `password`, `remember` | | Sign in. With `remember`, the password is kept to sign in again by itself |
 | `signout` | | | Forget the session and any saved password |
 | `retry` | | | Try to connect now instead of waiting |
@@ -152,3 +156,4 @@ Kept by the service in `$LANTERN_HOME/settings.json`, so they survive restarts a
 | `quiet_start`, `quiet_end` | `"HH:MM"` | `"23:00"`, `"07:00"` |
 | `touch_keyboard` | `auto`, `always` | `auto` |
 | `default_profile` | a profile name | `default` |
+| `conversations` | bool: show profiles, side chats, New chat and compaction. Off, the desk is one conversation (the default profile's main chat), and turning it off returns there | `false` |

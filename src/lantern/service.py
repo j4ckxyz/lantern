@@ -20,13 +20,15 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 
 from . import __version__, config
-from .auth import Auth, normalize_base
+from . import address
+from .auth import Auth
 from .bridge import Bridge
 from .conversation import Conversation
-from .dashboard import Hermes
+from .pairing import PORT as PAIR_PORT, Pairing
+from .dashboard import SpeechFallback, Hermes
 from .errors import LanternError, NeedsSignIn
 from .links import Blocked, Fetcher
 
@@ -97,6 +99,7 @@ class Service:
         self._stopping = False
         self._unix = None
         self._speech: Optional[Tuple[str, asyncio.Event, asyncio.Task]] = None
+        self.pairing: Optional[Pairing] = None
         self._setup_auth()
 
     def _setup_auth(self) -> None:
@@ -127,6 +130,8 @@ class Service:
     async def stop(self) -> None:
         self._stopping = True
         self._wake.set()
+        if self.pairing is not None:
+            await self.pairing.stop()
         if self.hermes is not None:
             await self.hermes.gateway.close()
         await self.bridge.stop()
@@ -195,6 +200,8 @@ class Service:
         self.state, self.error, self.detail = state, error, detail
         if changed or extra:
             self.broadcast({"type": "link", "state": state, "error": error, "detail": detail, **extra})
+        if state == READY and self.pairing is not None and self.pairing.state in ("waiting", "working"):
+            await self.pairing.stop("done")  # signed in (here or from the phone): the page closes
 
     # -- what clients see -----------------------------------------------------------------
 
@@ -208,6 +215,7 @@ class Service:
                         "remembered": self.auth.remembered if self.auth else False},
             "profiles": c.profiles, "view": c.public_view(), "turn": c.public_turn(), "prompt": c.public_prompt(),
             "settings": dict(self.settings), "dev": self.dev,
+            "pairing": self.pairing.public() if self.pairing and self.pairing.state in ("waiting", "working") else None,
         }
 
     def broadcast(self, msg: Dict[str, Any]) -> None:
@@ -308,10 +316,58 @@ class Service:
             self.settings.update(changes)
             config.save_settings(self.settings, self.home)
             self.broadcast({"type": "settings", "settings": dict(self.settings)})
+            if changes.get("conversations") is False and self.conversation.view.get("kind") != "main":
+                # Back to the simple desk: its one conversation is the main chat.
+                with contextlib.suppress(Exception):
+                    profile = self.settings.get("default_profile") or "default"
+                    names = [p["name"] for p in self.conversation.profiles]
+                    await self.conversation.open(profile if profile in names else self.conversation.view["profile"], None)
             return {"settings": dict(self.settings)}
         if op == "setup":
             await self.configure(str(msg.get("url") or ""))
             return None
+        if op == "commands.list":
+            self._ready()
+            rows = await self.conversation.commands()
+            local = [{"name": "/stop", "description": "Stop Hermes", "args": None}]
+            if self.settings.get("conversations"):
+                local.insert(0, {"name": "/new", "description": "Start a new chat", "args": None})
+            names = {r["name"] for r in local}
+            return {"commands": local + [r for r in rows if r["name"] not in names]}
+        if op == "command":
+            self._ready()
+            text = str(msg.get("text") or "").strip()
+            name = text.split(" ", 1)[0].lower()
+            if not name.startswith("/") or len(name) < 2:
+                raise LanternError("A command starts with / and a name.")
+            if name in ("/new", "/reset", "/clear"):
+                if not self.settings.get("conversations"):
+                    raise LanternError("To start new chats, turn on Profiles and side chats in Settings. "
+                                       "Without them the desk keeps one conversation.")
+                view = await self.conversation.new_chat(None)
+                return {"view": view}
+            if name == "/stop":
+                await self.conversation.stop()
+                return {}
+            return await self.conversation.run_command(text)
+        if op == "pair.start":
+            if self.pairing is not None and self.pairing.state in ("waiting", "working"):
+                return {"pairing": self.pairing.public()}
+            pairing = Pairing(self._pair_submit, lambda p: self.broadcast({"type": "pair", "pairing": p}),
+                              current_url=str(self.cfg.get("url") or ""),
+                              port=int(os.environ.get("LANTERN_PAIR_PORT") or PAIR_PORT))
+            try:
+                await pairing.start()
+            except OSError as exc:
+                raise LanternError(f"The desk could not open its setup page (port {pairing.port}): {exc.strerror or exc}") from None
+            self.pairing = pairing
+            return {"pairing": pairing.public()}
+        if op == "pair.stop":
+            if self.pairing is not None:
+                await self.pairing.stop()
+            return None
+        if op == "setup.check":
+            return await check_address(str(msg.get("url") or ""))
         if op == "signin":
             if self.auth is None:
                 raise LanternError("Set up the Hermes address first.")
@@ -365,15 +421,8 @@ class Service:
 
     async def configure(self, raw: str) -> None:
         """Point the desk at a Hermes (first run, or a corrected address) and start connecting."""
-        raw = raw.strip()
-        try:
-            if "://" in raw:
-                url = normalize_base(raw)
-            else:  # just a name: try the usual places a dashboard answers and keep the one that does
-                guesses = [normalize_base("https://" + raw), normalize_base("http://" + raw)]
-                url = await _first_answering(guesses) or guesses[0 if raw.endswith(".ts.net") else 1]
-        except ValueError as exc:
-            raise LanternError(str(exc)) from None
+        found = await check_address(raw)
+        url = found["url"] or found["tried"][0]  # nothing answered: keep the likeliest and keep trying
         if url == self.cfg.get("url") and self.auth is not None:
             self._wake.set()
             return
@@ -387,6 +436,17 @@ class Service:
             await self.hermes.gateway.close()
         self._wake.set()
         self.broadcast(self.snapshot())
+
+    async def _pair_submit(self, url: str, username: str, password: str, remember: bool) -> None:
+        """Details typed on a phone: set the address and sign in, as the screen would."""
+        found = await check_address(url)
+        if not found["url"]:
+            raise LanternError("Nothing answers at that address from the desk. Check it, and that the desk is on "
+                               "the same network or tailnet as Hermes.")
+        await self.configure(found["url"])
+        assert self.auth is not None
+        await self.auth.sign_in(username, password, remember)
+        self._wake.set()
 
     async def media_bytes(self, media_id: str) -> Tuple[bytes, str]:
         if self.hermes is None:
@@ -437,8 +497,18 @@ class Service:
             if started and not stop.is_set():
                 self._broadcast_binary(data)
 
+        profile = str(self.conversation.view.get("profile") or "")
         try:
-            await self.hermes.speak_stream(text, on_start, on_audio, stop)
+            try:
+                await self.hermes.speak_stream(text, on_start, on_audio, stop, profile=profile)
+            except SpeechFallback:
+                # This voice cannot stream: fetch the whole clip and let the screen play it.
+                clip = await self.hermes.speak_once(text, profile=profile)
+                if not stop.is_set():
+                    media = self.conversation.media.add_bytes(_data_url_bytes(str(clip.get("data_url") or "")),
+                                                              str(clip.get("mime_type") or "audio/mpeg"))
+                    started = True
+                    self.broadcast({"type": "speech.clip", "id": speech_id, "message_id": message_id, "url": media["url"]})
             if stop.is_set():
                 reason = "stopped"
         except Exception as exc:
@@ -455,6 +525,15 @@ class Service:
 _CODE_BLOCK = re.compile(r"```.*?(```|$)", re.DOTALL)
 _MD_LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
 _URL = re.compile(r"https?://\S+")
+
+
+def _data_url_bytes(data_url: str) -> bytes:
+    import base64
+
+    head, _, body = data_url.partition(",")
+    if not body:
+        raise LanternError("Hermes sent no audio.")
+    return base64.b64decode(body) if ";base64" in head else body.encode()
 
 
 def speakable(markdown: str) -> str:
@@ -489,25 +568,38 @@ def _explain(exc: BaseException) -> Tuple[str, str]:
     return "Something went wrong talking to Hermes.", detail
 
 
-def _answers(url: str) -> bool:
+def _probe(url: str) -> Optional[Dict[str, Any]]:
+    """``{"version": ...}`` when a Hermes dashboard answers at ``url``, else None."""
     from . import net
 
     net.install()
     try:
-        with urllib.request.urlopen(url + "/api/status", timeout=5) as response:
-            return isinstance(json.loads(response.read() or b"null"), dict)
+        with urllib.request.urlopen(url + "/api/status", timeout=4) as response:
+            body = json.loads(response.read(65536) or b"null")
+            if not isinstance(body, dict):
+                return None
+            return {"version": str(body.get("version") or body.get("hermes_version") or "")}
     except urllib.error.HTTPError as exc:
-        return exc.code in (401, 403)
+        return {"version": ""} if exc.code in (401, 403) else None
     except Exception:
-        return False
+        return None
 
 
-async def _first_answering(urls: List[str]) -> Optional[str]:
+async def check_address(raw: str) -> Dict[str, Any]:
+    """Try every likely URL for what was typed, together, and keep the likeliest that answers.
+
+    ``{"url", "version", "tried", "insecure"}``; ``url`` is None when nothing answered.
+    """
+    try:
+        tried = address.candidates(raw)
+    except ValueError as exc:
+        raise LanternError(str(exc)) from None
     loop = asyncio.get_running_loop()
-    for url in urls:
-        if await loop.run_in_executor(None, _answers, url):
-            return url
-    return None
+    answers = await asyncio.gather(*(loop.run_in_executor(None, _probe, u) for u in tried))
+    for url, answer in zip(tried, answers):
+        if answer is not None:
+            return {"url": url, "version": answer["version"], "tried": tried, "insecure": address.needs_warning(url)}
+    return {"url": None, "version": "", "tried": tried, "insecure": address.needs_warning(tried[0])}
 
 
 async def _socket_alive(path: Path) -> bool:

@@ -94,6 +94,7 @@ const SETTINGS = {
   text_size: 'comfortable', theme: 'dark', sounds: false, sound_volume: 0.4, speech_volume: 0.8, read_aloud: false,
   brightness: 0.8, dim_after_s: 120, off_after_s: 600, quiet_start: '23:00', quiet_end: '07:00', touch_keyboard: 'auto',
   default_profile: 'default',
+  conversations: false,
 }
 
 const LONG = `## Setting up the desk display
@@ -203,7 +204,7 @@ wss.on('connection', (ws, req) => {
 
   const world = {
     state: q.get('mock') === 'setup' ? 'setup' : q.get('mock') === 'signin' ? 'signin' : q.get('mock') === 'offline' ? 'offline' : q.get('mock') === 'connecting' ? 'connecting' : 'ready',
-    settings: { ...SETTINGS, ...(q.get('theme') ? { theme: q.get('theme') } : {}), ...(q.get('size') ? { text_size: q.get('size') } : {}) },
+    settings: { ...SETTINGS, ...(q.get('theme') ? { theme: q.get('theme') } : {}), ...(q.get('size') ? { text_size: q.get('size') } : {}), ...(q.get('conversations') ? { conversations: true } : {}) },
     profiles: PROFILES(),
     view: { profile: 'default', session_id: 'main-default', kind: 'main', title: 'Main chat', messages: q.get('mock') === 'empty' ? [] : mainHistory(), has_more: q.get('mock') !== 'empty' },
     page: 0,
@@ -406,6 +407,42 @@ wss.on('connection', (ws, req) => {
         return
       case 'status':
         return reply(m, { status: {} })
+      case 'commands.list':
+        return reply(m, {
+          commands: [
+            { name: '/stop', description: 'Stop Hermes', args: null },
+            ...(world.settings.conversations ? [{ name: '/new', description: 'Start a new chat', args: null }] : []),
+            { name: '/help', description: 'List the commands', args: null },
+            { name: '/usage', description: 'Tokens used in this session', args: null },
+            { name: '/status', description: 'What this session is doing', args: null },
+            { name: '/title', description: 'Name this session', args: 'text' },
+            { name: '/personality', description: 'Change how Hermes talks', args: 'options', options: ['concise', 'friendly', 'formal'] },
+            { name: '/plan', description: 'Plan before acting', args: 'text' },
+          ],
+        })
+      case 'command': {
+        if (!ready) return reply(m, {}, false, 'Not connected to Hermes yet.')
+        const text = String(m.text || '').trim()
+        const [name, ...rest] = text.split(' ')
+        const arg = rest.join(' ')
+        if (name === '/plan') {
+          const u = msg(nextId('u'), 'user', text, now())
+          add(u)
+          reply(m, { sent: true })
+          return runTurn('Before acting, write a short plan for: ' + (arg || 'the next step'))
+        }
+        const outputs = {
+          '/help': '/help         List the commands\n/usage        Tokens used in this session\n/status       What this session is doing\n/title        Name this session\n/personality  Change how Hermes talks\n/plan         Plan before acting',
+          '/usage': 'This session: 1,234 tokens in, 567 out.',
+          '/status': 'Idle. Model: example-model.',
+          '/title': arg ? `Title set: ${arg}` : 'Give a title after /title.',
+          '/personality': `Personality: ${arg || 'default'}`,
+        }
+        if (!(name in outputs)) return reply(m, {}, false, `${name} is not a Hermes command.`)
+        const k = msg(nextId('k'), 'assistant', outputs[name], now(), { command: name })
+        add(k)
+        return reply(m, { output: outputs[name] })
+      }
       case 'send': {
         if (!ready) return reply(m, {}, false, 'Not connected to Hermes yet.')
         if (world.turn) return reply(m, {}, false, 'Hermes is still answering. Stop it first, or wait.')
@@ -518,6 +555,29 @@ wss.on('connection', (ws, req) => {
         world.settings = { ...world.settings, ...(m.changes || {}) }
         out({ type: 'settings', settings: world.settings })
         return reply(m, { settings: world.settings })
+      case 'pair.start': {
+        const pairing = { state: 'waiting', error: '', code: 'K7Q-4MP', expires_in: 600, url: 'http://192.168.1.30:8770/?k=demo-key', addresses: ['http://lantern.local:8770', 'http://192.168.1.30:8770'] }
+        world.pairing = pairing
+        reply(m, { pairing })
+        return out({ type: 'pair', pairing })
+      }
+      case 'pair.stop':
+        if (world.pairing) out({ type: 'pair', pairing: { ...world.pairing, state: 'stopped' } })
+        world.pairing = null
+        return reply(m)
+      case 'setup.check': {
+        // A rough copy of the service's rules (src/lantern/address.py), enough to drive the form.
+        await sleep(350)
+        const typed = String(m.url || '').trim()
+        if (!typed) return reply(m, {}, false, 'Type the address of your Hermes dashboard.')
+        const scheme = (typed.match(/^(https?):\/\//i) || [])[1]
+        const host = typed.replace(/^[a-z]+:\/*/i, '').split(/[/?#]/)[0].toLowerCase()
+        const local = /^(\d+\.){3}\d+(:\d+)?$|\.local$|^[^.]+$/.test(host)
+        const url = scheme ? `${scheme.toLowerCase()}://${host}` : local ? `http://${host.includes(':') ? host : host + ':9119'}` : `https://${host}`
+        const found = !/bad|nothing/.test(typed)
+        const insecure = url.startsWith('http:') && !local && !host.endsWith('.ts.net')
+        return reply(m, { url: found ? url : null, version: found ? '0.22.5' : '', tried: [url], insecure })
+      }
       case 'setup': {
         await sleep(500)
         if (/bad|nothing/.test(String(m.url))) return reply(m, {}, false, `Nothing answered at ${m.url}. Check the address, and that Tailscale is connected.`)

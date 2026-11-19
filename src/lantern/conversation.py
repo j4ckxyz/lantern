@@ -64,6 +64,7 @@ class Conversation:
         self._refresh_task: Optional[asyncio.Task] = None
         self._open_lock = asyncio.Lock()
         self.on_reply: Optional[Callable[[Dict[str, Any]], None]] = None
+        self._commands: Dict[str, List[Dict[str, Any]]] = {}
         saved = config.read_json(home / "state.json", {}) or {}
         if isinstance(saved.get("view"), dict):
             self.view.update({k: saved["view"].get(k) for k in ("profile", "session_id", "kind", "title") if saved["view"].get(k)})
@@ -143,8 +144,13 @@ class Conversation:
             profile = wanted if wanted in names else next((p["name"] for p in self.profiles if p["is_default"]),
                                                           names[0] if names else "default")
         stored = self.view.get("session_id") if self.view.get("profile") == profile else ""
+        if not settings.get("conversations"):
+            # The simple desk is always the main chat of the default profile.
+            wanted = settings.get("default_profile")
+            profile = wanted if wanted in names else next((p["name"] for p in self.profiles if p["is_default"]), profile)
+            stored = ""
         try:
-            await self.open(profile, stored or None, kind=self.view.get("kind") or "main")
+            await self.open(profile, stored or None, kind=(self.view.get("kind") or "main") if stored else "main")
         except RpcError as exc:
             log.info("could not reopen %s (%s); opening the main chat", stored, exc)
             await self.open(profile, None)
@@ -282,7 +288,9 @@ class Conversation:
 
     # -- talking ----------------------------------------------------------------------------
 
-    async def send(self, text: str) -> str:
+    async def send(self, text: str, display: str = "") -> str:
+        """Send a message in the open chat. ``display`` is what the screen shows when it differs from
+        what Hermes is sent (a command that expands into a longer prompt)."""
         assert self.hermes is not None
         text = (text or "").strip()
         if not text:
@@ -293,7 +301,7 @@ class Conversation:
             raise LanternError("Hermes is still answering. Stop it or wait a moment.")
         if not self.sid:
             await self.open(self.view["profile"], self.view.get("session_id") or None, kind=self.view.get("kind", "main"))
-        message = {"id": f"u{uuid.uuid4().hex[:12]}", "role": "user", "text": text, "ts": time.time(), "media": []}
+        message = {"id": f"u{uuid.uuid4().hex[:12]}", "role": "user", "text": display or text, "ts": time.time(), "media": []}
         self._own_turn = True
         self.view["messages"].append(message)
         self.emit({"type": "message", "message": message})
@@ -307,6 +315,61 @@ class Conversation:
         self._loaded += 1
         return message["id"]
 
+    # -- slash commands -------------------------------------------------------------------
+
+    async def commands(self) -> List[Dict[str, Any]]:
+        """The commands this profile offers a screen like this one, cached until skills change."""
+        assert self.hermes is not None
+        profile = self.view["profile"]
+        if profile in self._commands:
+            return self._commands[profile]
+        catalog = await self.hermes.commands(profile, self.sid)
+        meta = catalog.get("commands") if isinstance(catalog.get("commands"), dict) else {}
+        sub = catalog.get("sub") if isinstance(catalog.get("sub"), dict) else {}
+        rows: List[Dict[str, Any]] = []
+        seen = set()
+        for pair in catalog.get("pairs") or []:
+            if not (isinstance(pair, list) and pair and isinstance(pair[0], str)):
+                continue
+            name = "/" + pair[0].lstrip("/")
+            info = meta.get(name) if isinstance(meta.get(name), dict) else {}
+            if info.get("desktop") or name in seen:
+                continue  # hidden, terminal-only or settings-only in Hermes's own apps
+            seen.add(name)
+            options = [o for o in sub.get(name) or [] if isinstance(o, str)]
+            rows.append({"name": name, "description": str(pair[1] if len(pair) > 1 else ""),
+                         "args": info.get("argument_mode") or ("options" if options else None),
+                         **({"options": options[:24]} if options else {})})
+        self._commands[profile] = rows
+        return rows
+
+    async def run_command(self, text: str) -> Dict[str, Any]:
+        """Run a Hermes slash command in the open chat. Output arrives as a ``message`` with
+        ``command`` set; a command that expands into a prompt is sent as a turn."""
+        assert self.hermes is not None
+        async with self._open_lock:
+            pass
+        if not self.sid:
+            await self.open(self.view["profile"], self.view.get("session_id") or None, kind=self.view.get("kind", "main"))
+        text = text.strip()
+        result = await self.hermes.run_command(self.view["profile"], self.sid, text)
+        if result.get("type") == "alias" and result.get("target"):
+            arg = text.partition(" ")[2]
+            text = "/" + str(result["target"]).lstrip("/") + (" " + arg if arg else "")
+            result = await self.hermes.run_command(self.view["profile"], self.sid, text)
+        kind = result.get("type")
+        if kind in ("send", "skill") and result.get("message"):
+            await self.send(str(result["message"]), display=str(result.get("display") or text))
+            return {"sent": True}
+        if kind == "prefill":
+            return {"prefill": str(result.get("message") or ""), "notice": str(result.get("notice") or "")}
+        output = str(result.get("output") or result.get("notice") or result.get("warning") or "").strip()
+        message = {"id": f"k{uuid.uuid4().hex[:12]}", "role": "assistant", "text": output or "Done.",
+                   "ts": time.time(), "media": [], "command": text.split(" ", 1)[0]}
+        self.view["messages"].append(message)
+        self.emit({"type": "message", "message": message})
+        return {"output": output}
+
     async def stop(self) -> None:
         if self.hermes is not None and self.sid:
             await self.hermes.interrupt(self.view["profile"], self.sid)
@@ -319,7 +382,8 @@ class Conversation:
             if choice not in ("once", "deny"):
                 raise LanternError("From the desk you can allow a command once, or deny it.")
             self.prompt = None
-            await self.hermes.answer_approval(self.view["profile"], self.sid, prompt["_request"], prompt["_prompt"], choice)
+            await self.hermes.answer_approval(self.view["profile"], self.sid, prompt["_request"], prompt["_prompt"], choice,
+                                              prompt.get("_generation"))
         else:
             answer = (text if text is not None else choice) or ""
             questions = prompt.get("_questions") or []
@@ -331,10 +395,11 @@ class Conversation:
                     return
                 self.prompt = None
                 await self.hermes.answer_clarify(self.view["profile"], self.sid, prompt["_request"], prompt["_prompt"],
-                                                 prompt["_answers"])
+                                                 prompt["_answers"], prompt.get("_generation"))
             else:
                 self.prompt = None
-                await self.hermes.answer_clarify(self.view["profile"], self.sid, prompt["_request"], prompt["_prompt"], answer)
+                await self.hermes.answer_clarify(self.view["profile"], self.sid, prompt["_request"], prompt["_prompt"], answer,
+                                                 prompt.get("_generation"))
         self.emit({"type": "prompt.close", "id": prompt_id})
 
     # -- what Hermes says -----------------------------------------------------------------
@@ -359,6 +424,9 @@ class Conversation:
         return self.turn
 
     async def on_event(self, kind: str, sid: str, payload: Dict[str, Any]) -> None:
+        if kind == "skills.changed":
+            self._commands.clear()  # new skills are new commands
+            return
         if kind in ("sessions.changed", "session.list.changed"):
             self._schedule_refresh()
             return
@@ -393,7 +461,11 @@ class Conversation:
                 turn["status"] = ""
                 self._activity()
             self.emit({"type": "turn.delta", "text": media_mod.displayable(turn["raw"])})
-        elif kind in ("reasoning.delta", "thinking.delta", "reasoning.available"):
+        elif kind in ("reasoning.delta", "thinking.delta", "reasoning.available", "tool.generating"):
+            # Hermes is thinking (or writing a tool call). The reasoning and the spinner's own words
+            # are never shown; the screen animates instead.
+            if kind == "thinking.delta" and not str(payload.get("text") or ""):
+                return
             if turn and not turn["raw"] and turn["status"] != "Thinking":
                 turn["status"] = "Thinking"
                 self._activity()
@@ -460,9 +532,15 @@ class Conversation:
                 level = str(payload.get("level") or "info")
                 self.emit({"type": "notice", "text": text[:300], "level": level if level in ("info", "warning", "error") else "info",
                            "ttl_s": (ttl / 1000) if isinstance(ttl, (int, float)) and ttl else 8})
-        elif kind in ("request.cancel", "approval.cancelled"):
-            ids = {str(payload.get("id") or "")} | {str(i) for i in payload.get("request_ids") or []}
-            if self.prompt and (self.prompt["_request"] in ids or self.prompt["_prompt"] in ids or kind == "approval.cancelled"):
+        elif kind in ("request.cancel", "approval.cancelled", "approval.settled", "clarify.settled"):
+            # Cancelled, or answered somewhere else (the phone, the computer): the card goes away.
+            ids = {str(payload.get(k) or "") for k in ("id", "prompt_id", "request_id")} | {
+                str(i) for i in payload.get("request_ids") or []}
+            ids.discard("")
+            wanted = "approval" if kind.startswith("approval") else "clarify" if kind.startswith("clarify") else ""
+            if self.prompt and (self.prompt["_request"] in ids or self.prompt["_prompt"] in ids
+                                or (wanted and not ids and self.prompt["kind"] == wanted)
+                                or (kind == "approval.cancelled" and self.prompt["kind"] == "approval")):
                 self.emit({"type": "prompt.close", "id": self.prompt["id"]})
                 self.prompt = None
         elif kind == "approval.request":
@@ -483,6 +561,9 @@ class Conversation:
         self.turn, self._own_turn = None, False
         if own:
             self._quiet_until = time.time() + 6  # the change notice for our own turn is not news
+        last = self.view["messages"][-1] if self.view["messages"] else None
+        if payload.get("response_reused") and last and last.get("interim") and last.get("text") == cleaned and not items:
+            cleaned = ""  # already on screen as the interim message: Hermes only re-sent it
         if cleaned or items:
             message = {"id": f"a{turn['id']}", "role": "assistant", "text": cleaned, "ts": time.time(), "media": items}
             if any(m.get("voice") for m in items):
@@ -536,13 +617,15 @@ class Conversation:
         self.prompt = {"id": request_id or prompt_id or uuid.uuid4().hex[:10], "kind": "approval",
                        "title": "Allow this command?", "text": description, "command": command,
                        "choices": [{"id": "once", "label": "Allow once"}, {"id": "deny", "label": "Deny"}],
-                       "free_text": False, "_request": request_id, "_prompt": prompt_id}
+                       "free_text": False, "_request": request_id, "_prompt": prompt_id,
+                       "_generation": params.get("execution_generation")}
         self.emit({"type": "prompt", "prompt": self.public_prompt()})
 
     def _show_question(self, request_id: str, prompt_id: str, params: Dict[str, Any]) -> None:
         questions = [q for q in params.get("questions") or [] if isinstance(q, dict) and q.get("qid")]
         base = {"id": request_id or prompt_id or uuid.uuid4().hex[:10], "kind": "clarify", "title": "Hermes asks",
-                "_request": request_id, "_prompt": prompt_id, "_questions": questions, "_answers": {}}
+                "_request": request_id, "_prompt": prompt_id, "_questions": questions, "_answers": {},
+                "_generation": params.get("execution_generation")}
         if questions:
             self._show_clarify(base, questions[0])
             return

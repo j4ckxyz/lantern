@@ -7,6 +7,7 @@ export type Overlay =
   | { kind: 'profiles'; profile?: string }
   | { kind: 'menu' }
   | { kind: 'settings' }
+  | { kind: 'shortcuts' }
   | { kind: 'qr'; url: string; title?: string; hint?: string }
   | { kind: 'image'; src: string; alt?: string }
 

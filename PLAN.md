@@ -13,6 +13,37 @@ at `ae2a81ccc0`, 16 November 2026) and the protocol notes from Hermes Desktop. T
 claims were checked against a live Hermes on a VPS (Hermes 0.22.5, release 2026.9.24).
 What was checked live is marked **(live)**.
 
+## Changes after approval
+
+Asked for on 19 November 2026, after the first build:
+
+- **Simple by default.** The desk is one conversation with your agent, the default profile's main
+  chat, like talking to an assistant. Profiles, side chats, New chat and compaction appear only
+  when **Profiles and side chats** is turned on in Settings (`conversations`, default off).
+- **Hermes's slash commands.** `/` in the message box lists what Hermes offers this profile
+  (`commands.catalog`), leaving out what Hermes's own apps keep out of their menus. Commands run
+  with `slash.exec`, falling back to `command.dispatch` as the apps do; output appears as a card
+  in the conversation, and a command that expands into a prompt is sent as a turn.
+- **Thinking.** Reasoning is never shown; a soft three-light wave animates in the reply's place
+  and in the panel until the first words arrive.
+- **Keyboard and mouse.** Type anywhere, `?` for the shortcuts, `↑` to bring back your last
+  message, Tab through every control with focus kept inside sheets, hover states only for a
+  mouse, and a pointer that hides itself when resting or when the screen is touched. An approval
+  takes keyboard focus on Deny, so a stray Enter is the safe answer.
+- **Addresses.** Whatever is typed is repaired (`https//`, a missing scheme, a pasted dashboard
+  route, a port) and every likely URL is tried at once; the form says what it found before you
+  press Connect, and warns when plain http would cross the internet.
+- **Set up from a phone.** Hermes has no device sign-in, so the desk opens a one-time page on
+  the local network (`pairing.py`): a QR code and a short code on screen, the details typed on
+  the phone. It closes after one use, ten minutes or five wrong codes.
+- **Without Tailscale.** Home-network and reverse-proxy Hermes setups are supported
+  (`install.sh --no-tailscale`, and `prompts/setup-hermes.md` covers all three); Tailscale stays
+  the recommended way.
+- **Endpoint audit** against Hermes v0.22.5's source. Fixes for session-authority sockets:
+  deleting through `DELETE /api/sessions/{id}`, approvals quoting the generation they came with,
+  `source: gui`, and closing a card answered on another device (`approval.settled`). Also speech
+  falling back to a whole clip when a voice cannot stream.
+
 ## 1. Decisions
 
 | Area | Decision | Why |

@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { Question, Shield } from '../icons'
 import type { Prompt } from '../protocol/types'
 import { run } from '../ui'
@@ -6,6 +6,13 @@ import { run } from '../ui'
 export function PromptCard({ prompt }: { prompt: Prompt }) {
   const [text, setText] = useState('')
   const [sent, setSent] = useState(false)
+  const ref = useRef<HTMLElement>(null)
+  // Keyboard focus moves to the card: Deny for an approval (Enter is then the safe answer), the
+  // first choice or the answer box for a question.
+  useEffect(() => {
+    const first = ref.current?.querySelector<HTMLElement>(prompt.kind === 'approval' ? '[data-safe]' : 'button, input')
+    first?.focus({ preventScroll: true })
+  }, [prompt.id])
   const answer = async (fields: Record<string, unknown>) => {
     setSent(true)
     const ok = await run('answer', { id: prompt.id, ...fields })
@@ -15,7 +22,7 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
   if (prompt.kind === 'approval') {
     // Only "once" and "deny" are offered here; standing permission belongs on the phone or computer.
     return (
-      <section class="prompt" role="alertdialog" aria-label={prompt.title}>
+      <section class="prompt" role="alertdialog" aria-label={prompt.title} ref={ref}>
         <div class="prompt-title">
           <Shield size={20} />
           {prompt.title || 'Allow this command?'}
@@ -23,7 +30,7 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
         {prompt.text ? <div class="prompt-text">{prompt.text}</div> : null}
         {prompt.command ? <pre class="prompt-command">{prompt.command}</pre> : null}
         <div class="row">
-          <button class="btn" disabled={sent} onClick={() => void answer({ choice: 'deny' })}>
+          <button class="btn" data-safe disabled={sent} onClick={() => void answer({ choice: 'deny' })}>
             Deny
           </button>
           <button class="btn primary" disabled={sent} onClick={() => void answer({ choice: 'once' })}>
@@ -35,7 +42,7 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
   }
 
   return (
-    <section class="prompt" role="alertdialog" aria-label={prompt.title}>
+    <section class="prompt" role="alertdialog" aria-label={prompt.title} ref={ref}>
       <div class="prompt-title">
         <Question size={20} />
         {prompt.title || 'Hermes asks'}

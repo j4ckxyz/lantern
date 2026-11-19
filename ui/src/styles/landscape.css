@@ -517,3 +517,24 @@
   max-width: 720px;
   margin-inline: auto;
 }
+
+/* Setting up from a phone takes the whole screen: the QR code large on the left, the words beside it. */
+[data-layout='landscape'] .gate:has(.phone) {
+  grid-template-columns: 1fr;
+}
+
+[data-layout='landscape'] .gate:has(.phone) .gate-intro {
+  display: none;
+}
+
+[data-layout='landscape'] .gate .phone {
+  gap: 28px;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+[data-layout='landscape'] .gate .phone-qr .qr-code {
+  width: 210px;
+  height: 210px;
+  padding: 12px;
+}

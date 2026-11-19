@@ -40,22 +40,6 @@ _TOKEN_RE = re.compile(r'__HERMES_SESSION_TOKEN__\s*=\s*"([^"]+)"')
 _REDIRECT = "http://127.0.0.1:53682/callback"
 
 
-def normalize_base(raw: str) -> str:
-    """``hermes.tail1234.ts.net`` or a full URL, as the dashboard's base URL."""
-    text = (raw or "").strip().rstrip("/")
-    if not text:
-        raise ValueError("No Hermes address given.")
-    if "://" not in text:
-        text = "http://" + text
-    parts = urlsplit(text)
-    if parts.scheme not in ("http", "https") or not parts.netloc or parts.query or parts.fragment:
-        raise ValueError(f"That does not look like a Hermes address: {raw}")
-    netloc = parts.netloc
-    if parts.scheme == "http" and parts.port is None:
-        netloc += ":9119"  # the dashboard's default port
-    return f"{parts.scheme}://{netloc}{parts.path.rstrip('/')}"
-
-
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args: Any, **kwargs: Any):  # a redirect to /login means "sign in", not "follow"
         return None

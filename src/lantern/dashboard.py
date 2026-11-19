@@ -292,7 +292,8 @@ class Hermes:
     async def create(self, profile: str, main: bool) -> Dict[str, Any]:
         """A new live session: the profile's main chat (hidden, titled "Bot Chat") or a side chat."""
         key = uuid.uuid4().hex
-        params: Dict[str, Any] = {"profile": profile, "source": "gui" if main else SOURCE}
+        # A session-authority socket only takes the sources Hermes's own apps use (cli, tui, gui, ...).
+        params: Dict[str, Any] = {"profile": profile, "source": "gui" if main or self.gateway.authority else SOURCE}
         if main:
             params.update(title=BOT_CHAT_TITLE, hidden=True, follow_profile_config=True)
         params["request_id" if self.gateway.authority else "idempotency_key"] = key
@@ -302,7 +303,8 @@ class Hermes:
 
     async def resume(self, profile: str, stored_id: str) -> Dict[str, Any]:
         result = await self.gateway.call("session.resume", timeout=60, session_id=stored_id, profile=profile,
-                                         source=SOURCE, defer_history=True, omit_messages=True)
+                                         source="gui" if self.gateway.authority else SOURCE,
+                                         defer_history=True, omit_messages=True)
         self._remember_fences(result)
         return result
 
@@ -352,22 +354,73 @@ class Hermes:
             log.debug("leaving %s: %s", sid, exc)
         self.fences.pop(sid, None)
 
-    async def answer_approval(self, profile: str, sid: str, request_id: str, prompt_id: str, choice: str) -> None:
+    # An approval or question carries the execution generation it belongs to; the answer must quote
+    # that one, not whatever the session had when the desk last resumed it.
+    async def answer_approval(self, profile: str, sid: str, request_id: str, prompt_id: str, choice: str,
+                              generation: Any = None) -> None:
         if request_id:
             await self.gateway.respond(request_id, {"choice": choice})
         else:
             await self.gateway.call("approval.respond", session_id=sid, prompt_id=prompt_id, choice=choice,
-                                    execution_generation=self.fences.get(sid, {}).get("execution_generation"))
+                                    execution_generation=generation if generation is not None
+                                    else self.fences.get(sid, {}).get("execution_generation"))
 
-    async def answer_clarify(self, profile: str, sid: str, request_id: str, prompt_id: str, answers: Any) -> None:
+    async def answer_clarify(self, profile: str, sid: str, request_id: str, prompt_id: str, answers: Any,
+                             generation: Any = None) -> None:
         if request_id:
             await self.gateway.respond(request_id, {"answers": answers} if isinstance(answers, dict) else {"answer": answers})
         else:
             await self.gateway.call("clarify.respond", session_id=sid, prompt_id=prompt_id, answer=answers,
-                                    execution_generation=self.fences.get(sid, {}).get("execution_generation"))
+                                    execution_generation=generation if generation is not None
+                                    else self.fences.get(sid, {}).get("execution_generation"))
 
     async def delete(self, profile: str, stored_id: str) -> None:
-        await self.gateway.call("session.delete", session_id=stored_id, profile=profile)
+        """Delete a stored conversation. A session-authority socket refuses ``session.delete``, so that
+        mode (or a plain socket that has stopped offering it) uses the REST route, which goes through
+        the authority."""
+        if not self.gateway.authority:
+            try:
+                await self.gateway.call("session.delete", session_id=stored_id, profile=profile)
+                return
+            except RpcError as exc:
+                if exc.code not in (-32601, 4001):
+                    raise
+        query = {"profile": profile} if profile else {}
+        response = await self.http.raw("DELETE", f"/api/sessions/{quote(stored_id, safe='')}" +
+                                       ("?" + urlencode(query) if query else ""))
+        if response.status not in (200, 204, 404):
+            self.http.checked(response, "delete")
+
+    # -- slash commands -------------------------------------------------------------------
+
+    async def commands(self, profile: str, sid: str = "") -> Dict[str, Any]:
+        """Hermes's command catalogue (``commands.catalog``): names, descriptions, argument modes."""
+        params: Dict[str, Any] = {"profile": profile}
+        if sid:
+            params["session_id"] = sid
+        return await self.gateway.call("commands.catalog", timeout=20, **params)
+
+    async def run_command(self, profile: str, sid: str, text: str) -> Dict[str, Any]:
+        """Run ``/name arg`` the way Hermes's own apps do: ``slash.exec`` first, and
+        ``command.dispatch`` when Hermes says the command needs it (skills, bundles, input-taking
+        commands). Answers one directive: ``exec``/``plugin`` with ``output``, ``send``/``skill``
+        with a ``message`` to submit, ``prefill`` with a ``message`` for the box, or ``alias``."""
+        name, _, arg = text.strip().lstrip("/").partition(" ")
+        try:
+            result = await self.gateway.call("slash.exec", timeout=120, session_id=sid, command=text.strip(),
+                                             profile=profile)
+        except RpcError as exc:
+            if exc.code in (4018, -32601):
+                result = await self.gateway.call("command.dispatch", timeout=120, name=name.lower(),
+                                                 arg=arg.strip() or None, session_id=sid, profile=profile)
+            elif "unsupported_command" in f"{exc.message} {exc.data}":
+                detail = exc.data.get("detail") if isinstance(exc.data, dict) else ""
+                raise LanternError(f"/{name} is not available from the desk." + (f" {detail}" if detail else "")) from None
+            else:
+                raise
+        if not result.get("type"):
+            result = {**result, "type": "exec"}
+        return result
 
     # -- history --------------------------------------------------------------------------
 
@@ -399,13 +452,17 @@ class Hermes:
     # -- speech ---------------------------------------------------------------------------
 
     async def speak_stream(self, text: str, on_start: Callable[[int], Awaitable[None]],
-                           on_audio: Callable[[bytes], Awaitable[None]], stop: asyncio.Event) -> None:
-        """Hermes's streaming text-to-speech: PCM (s16le mono) per sentence as it is synthesised."""
+                           on_audio: Callable[[bytes], Awaitable[None]], stop: asyncio.Event,
+                           profile: str = "") -> None:
+        """Hermes's streaming text-to-speech: PCM (s16le mono) per sentence as it is synthesised.
+
+        Raises :class:`SpeechFallback` when Hermes's voice cannot stream; ``speak_once`` then works."""
         from websockets.asyncio.client import connect
 
         ticket = (await self.http.post("/api/auth/ws-ticket", {}))["ticket"]
         scheme, rest = split_url(self.base)
-        async with connect(f"{scheme}://{rest}/api/audio/speak-stream?" + urlencode({"ticket": ticket}),
+        query = {"ticket": ticket, **({"profile": profile} if profile and profile != "default" else {})}
+        async with connect(f"{scheme}://{rest}/api/audio/speak-stream?" + urlencode(query),
                            max_size=WS_MAX_BYTES, open_timeout=15) as ws:
             await ws.send(json.dumps({"text": text}))
             await ws.send(json.dumps({"done": True}))
@@ -431,11 +488,18 @@ class Hermes:
                         await on_start(int(frame.get("sample_rate") or 24000))
                     elif kind == "end":
                         return
+                    elif kind == "fallback":
+                        raise SpeechFallback()
                     elif kind == "error":
                         raise LanternError(str(frame.get("message") or "Hermes could not speak that."))
             finally:
                 stopper.cancel()
 
-    async def speak_once(self, text: str) -> Dict[str, Any]:
+    async def speak_once(self, text: str, profile: str = "") -> Dict[str, Any]:
         """The whole reply as one audio file (``/api/audio/speak``): ``{data_url, mime_type}``."""
-        return await self.http.post("/api/audio/speak", {"text": text[:4000]}, timeout=120)
+        path = "/api/audio/speak" + (("?" + urlencode({"profile": profile})) if profile and profile != "default" else "")
+        return await self.http.post(path, {"text": text[:4000]}, timeout=120)
+
+
+class SpeechFallback(LanternError):
+    """Hermes's voice cannot stream; ask for the whole clip with ``speak_once`` instead."""

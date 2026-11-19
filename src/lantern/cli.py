@@ -76,10 +76,15 @@ def cmd_setup(args: argparse.Namespace) -> int:
             h.request("setup", url=url, timeout=30)
             say(f"Hermes address set: {h.request('status')['status']['server']['url']}")
     else:
-        from .auth import normalize_base
+        import asyncio
 
+        from .service import check_address
+
+        found = asyncio.run(check_address(url))
         cfg = config.load()
-        cfg["url"] = normalize_base(url if "://" in url else ("https://" + url if url.endswith(".ts.net") else url))
+        cfg["url"] = found["url"] or found["tried"][0]
+        if not found["url"]:
+            say(f"Nothing answered yet; keeping {cfg['url']}.")
         if args.name:
             cfg["name"] = args.name
         config.save(cfg)

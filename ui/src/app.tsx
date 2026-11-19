@@ -5,7 +5,7 @@ import { Composer, composerHandle } from './components/Composer'
 import { SetupScreen, SigninScreen, Splash } from './components/Gate'
 import { ImageViewer } from './components/ImageViewer'
 import { PromptCard } from './components/PromptCard'
-import { MenuSheet, ProfilesSheet, QrSheet, SettingsSheet } from './components/Sheets'
+import { MenuSheet, ProfilesSheet, QrSheet, SettingsSheet, ShortcutsSheet } from './components/Sheets'
 import { StatusLine } from './components/StatusLine'
 import { Toasts } from './components/Toasts'
 import { TopBar } from './components/TopBar'
@@ -51,14 +51,15 @@ function useKeys(s: AppState) {
         e.preventDefault()
         return
       }
+      const full = s.settings.conversations
       // Chromium keeps Ctrl+N for itself in some modes, so Alt+N does the same.
-      if ((mod || e.altKey) && e.key.toLowerCase() === 'n') {
+      if (full && (mod || e.altKey) && e.key.toLowerCase() === 'n') {
         e.preventDefault()
         overlays.closeAll()
         if (s.link === 'ready') void run('chat.new', {})
         return
       }
-      if (mod && e.key.toLowerCase() === 'k') {
+      if (full && mod && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         overlays.open({ kind: 'profiles' })
         return
@@ -83,6 +84,23 @@ function useKeys(s: AppState) {
         chatHandle.current?.toEnd()
         return
       }
+      if (e.key === '?' && !isTyping(document.activeElement)) {
+        e.preventDefault()
+        overlays.open({ kind: 'shortcuts' })
+        return
+      }
+      // A question or approval is on screen (and in landscape it hides the message box): typing goes
+      // to its answer box if it has one, and never anywhere that could answer it by accident.
+      if (s.prompt) {
+        const answer = document.querySelector<HTMLInputElement>('.prompt-free input')
+        if (answer && !mod && !e.altKey && e.key.length === 1 && !isTyping(document.activeElement)) {
+          e.preventDefault()
+          answer.focus()
+          answer.setRangeText(e.key, answer.selectionStart ?? answer.value.length, answer.selectionEnd ?? answer.value.length, 'end')
+          answer.dispatchEvent(new Event('input', { bubbles: true }))
+        }
+        return
+      }
       // Typing anywhere goes into the message box, keystroke included.
       const box = composerHandle.current
       if (box && !mod && !e.altKey && e.key.length === 1 && !isTyping(document.activeElement)) {
@@ -94,7 +112,7 @@ function useKeys(s: AppState) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [s.turn, s.link])
+  }, [s.turn, s.link, s.prompt, s.settings.conversations])
 }
 
 function OverlayView({ o, s }: { o: Overlay; s: AppState }) {
@@ -105,6 +123,8 @@ function OverlayView({ o, s }: { o: Overlay; s: AppState }) {
       return <MenuSheet s={s} />
     case 'settings':
       return <SettingsSheet s={s} />
+    case 'shortcuts':
+      return <ShortcutsSheet s={s} />
     case 'qr':
       return <QrSheet url={o.url} title={o.title} hint={o.hint} />
     case 'image':

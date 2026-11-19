@@ -29,11 +29,15 @@ ui/: Preact, TypeScript          bridge.py           the only holder of the sign
 | `src/lantern/auth.py` | Native sign-in (PKCE, bearer tokens), refresh, the saved password, a tiny HTTP client |
 | `src/lantern/conversation.py` | Profiles, main chats, the open chat, turn assembly from Hermes's events, prompts |
 | `src/lantern/media.py` | `MEDIA:` tags (Hermes's own rules), media ids, fetching and caching the bytes |
+| `src/lantern/address.py` | What someone types as their Hermes address: typos repaired, the likely URLs ranked (Tailscale, home network, https proxy) |
+| `src/lantern/pairing.py` | Setting the desk up from a phone: a one-time page on the local network with a QR code and a short code |
 | `src/lantern/links.py` | Link previews and remote pictures, fetched with strict limits |
 | `src/lantern/bridge.py` | HTTP and WebSocket on 127.0.0.1 for the screen, token-gated |
 | `src/lantern/service.py` | `lantern run`: the connection loop, clients, operations, settings, reading aloud |
 | `src/lantern/fakehermes.py` | A stand-in Hermes for tests and development (needs `aiohttp`, in the dev extra) |
 | `src/lantern/net.py` | Finds a Tailscale name when the machine does not use Tailscale's DNS |
+| `ui/src/components/Palette.tsx` | Hermes's slash commands in the message box |
+| `ui/src/input.ts` | Touch, mouse or keyboard: hover states for a mouse, and a pointer that hides itself |
 | `ui/` | The screen; `ui/README.md` says how to run it, its mock, and its screenshot tests. Landscape puts a panel (`Presence.tsx`) beside the chat; portrait has a top bar. The dark theme is true black so it meets the display's black glass; `styles/aura.css` is the state light behind the panel |
 | `device/` | `install.sh`, `build-bundle.sh`, `kiosk.sh`, `systemd/`, `plymouth/`, `system/` |
 | `tests/` | The Python suite, against the fake Hermes and a pretend screen on the bridge |

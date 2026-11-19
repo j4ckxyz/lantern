@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # Turn a fresh Raspberry Pi OS Lite (64-bit, Trixie) into the Lantern desk.
 #
-#   sudo bash install.sh --bundle lantern-0.2.0-arm64.tar.zst [--rotate 90] [--lock-ssh] [--yes]
+#   sudo bash install.sh --bundle lantern-0.2.0-arm64.tar.zst [--rotate 90] [--no-tailscale] [--lock-ssh] [--yes]
 #
 # --rotate turns the screen: 90 or 270 is landscape, one for each way up (the default is 90);
 # 0 keeps the panel's native portrait. Run again with the other value if the picture is upside down.
 #
+# --no-tailscale leaves Tailscale out, for a Hermes on your home network or behind your own https
+# address. Tailscale is still the easy and safe way, so it is installed unless you say otherwise.
+#
 # What it does, in order (each step is safe to run again):
-#   1. installs cage, Chromium, Plymouth, PipeWire, emoji fonts, zram and Tailscale
+#   1. installs cage, Chromium, Plymouth, PipeWire, emoji fonts, zram and (unless told not to) Tailscale
 #   2. makes two accounts: `lantern` (the service, holds the sign-in) and `kiosk` (the screen)
 #   3. installs the release from the bundle into /opt/lantern/releases/<version>
 #   4. sets the boot up for the Touch Display 2 and a quiet, splash-only start
@@ -26,6 +29,7 @@ LOCK_SSH=0
 ASSUME_YES=0
 BOOT_CONFIG=1
 ROTATE=90
+TAILSCALE=1
 PREFIX=/opt/lantern
 BOOT=/boot/firmware
 
@@ -34,13 +38,14 @@ warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 usage() {
-    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --bundle) BUNDLE="${2:-}"; shift ;;
         --rotate) ROTATE="${2:-}"; shift ;;
+        --no-tailscale) TAILSCALE=0 ;;
         --lock-ssh) LOCK_SSH=1 ;;
         --no-boot-config) BOOT_CONFIG=0 ;;
         --yes|-y) ASSUME_YES=1 ;;
@@ -77,7 +82,7 @@ install_packages() {
     apt-get install -y --no-install-recommends \
         cage wlr-randr chromium plymouth pipewire pipewire-pulse wireplumber fonts-noto-color-emoji \
         zram-tools python3-venv python3-pip zstd curl ca-certificates
-    if ! command -v tailscale >/dev/null 2>&1; then
+    if [ "$TAILSCALE" = 1 ] && ! command -v tailscale >/dev/null 2>&1; then
         say "Installing Tailscale (from tailscale.com)"
         curl -fsSL https://tailscale.com/install.sh | sh
     fi
@@ -234,13 +239,17 @@ main() {
     install_units
     lock_ssh
     say "Done. Version $(cat "$PREFIX/current/VERSION") is installed."
-    cat <<EOF
-
-Next:
-  1. If you have not yet: sudo tailscale up --ssh     (approve the device in your tailnet)
-  2. Reboot: sudo reboot. The desk starts into its setup screen: type your Hermes address
-     and sign in there. Or do it here: lantern setup https://hermes.<your-tailnet>.ts.net
-  3. Later, to keep OpenSSH off the network: sudo bash install.sh --bundle ... --lock-ssh
+    printf '\nNext:\n'
+    if [ "$TAILSCALE" = 1 ]; then
+        echo "  1. If you have not yet: sudo tailscale up --ssh     (approve the device in your tailnet)"
+    else
+        echo "  1. Tailscale is left out: the desk reaches Hermes over your network or its https address."
+    fi
+    cat <<'EOF'
+  2. Reboot: sudo reboot. The desk starts into its setup screen. Type your Hermes address and
+     sign in there, or tap "Use your phone instead" and do it from your phone.
+     Or here: lantern setup hermes.<your-tailnet>.ts.net
+  3. Later, to keep OpenSSH off the network (Tailscale SSH only): sudo bash install.sh --bundle ... --lock-ssh
 EOF
 }
 

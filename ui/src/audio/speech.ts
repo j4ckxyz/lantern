@@ -18,6 +18,7 @@ class SpeechPlayer {
 
   setVolume(v: number): void {
     this.volume = v
+    if (this.clip) this.clip.volume = v
     if (this.gain) this.gain.gain.value = v
   }
 
@@ -60,6 +61,18 @@ class SpeechPlayer {
   stop(): void {
     this.backlog = []
     this.flushNode()
+    this.clip?.pause()
+    this.clip = null
+  }
+
+  /** A whole spoken clip, for voices Hermes cannot stream. */
+  private clip: HTMLAudioElement | null = null
+  playClip(url: string): void {
+    this.clip?.pause()
+    const a = new Audio(url)
+    a.volume = this.volume
+    this.clip = a
+    void a.play().catch(() => undefined)
   }
 
   private flushNode(): void {

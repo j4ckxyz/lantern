@@ -20,13 +20,15 @@ version is still in the history.
 | | |
 |---|---|
 | **A face for the desk** | Beside the conversation, a panel shows who you are talking to and the time. While Hermes works it lists what it is doing, tool by tool. The screen is true black, so it melts into the display's black glass, and a soft light behind the panel shows Hermes's state: calm when idle, breathing while it works, amber when it needs you |
-| **Your conversations, where you left them** | Each Hermes profile has one main chat, the same one your phone and computer show, so you can carry on at the desk. Start a side chat with one tap, or compact a long chat |
-| **Replies as they are written** | Streamed at a steady reading pace, with Markdown, tables and highlighted code |
+| **Simple by default** | Just talk to your agent: the desk is one conversation, the same main chat your phone and computer show, so you can carry on where you left off. Profiles, side chats and compaction are one switch away in Settings |
+| **Replies as they are written** | A soft animation while Hermes thinks (its reasoning stays out of the way), then the reply streams at a steady reading pace, with Markdown, tables and highlighted code |
+| **Hermes's commands** | Type `/` for the commands Hermes's other apps offer, such as `/usage`, `/title`, `/personality` and your skills, with a list that narrows as you type |
 | **Pictures, audio and files** | Whatever the agent sends appears inline. Pictures open full screen, and audio has a player. Files get a QR code, so your phone can download them |
 | **Links you can take with you** | Links become cards with the page's title and icon. Tap one for a large QR code to scan with your phone |
 | **Read aloud** | Any reply can be spoken through Hermes's own text-to-speech, or every reply by choice |
 | **Asks before risky things** | When Hermes wants approval for a command, the desk shows exactly what will run. From the desk you can allow it once or deny it, nothing broader |
-| **Keyboard or touch** | Type on a Bluetooth keyboard, or use the touchscreen |
+| **Keyboard, mouse or touch** | Type anywhere to talk to Hermes. Every action has a shortcut (press `?` for the list), a mouse gets hover states, and the pointer hides itself when you are not using it |
+| **Set up from your phone** | Scan a QR code on the desk and type your Hermes address and sign-in on your phone, the way you would sign in a games console. Or type them on the desk: a bare name is enough |
 | **Built like an appliance** | A quiet boot splash and no console. Logs and swap stay in RAM to spare the SD card. It reconnects by itself and says plainly why when it cannot |
 
 <p align="center">
@@ -57,7 +59,9 @@ version is still in the history.
 
 ## Set it up
 
-You need a Hermes you already run, reachable over [Tailscale](https://tailscale.com), and:
+You need a Hermes you already run, and a way for the desk to reach it:
+[Tailscale](https://tailscale.com) (recommended: the easiest, and encrypted), your home network,
+or your own https address behind a reverse proxy. You also need:
 
 - a Raspberry Pi 4 (2 GB is plenty) with the Raspberry Pi Touch Display 2 (5"), and a microSD card;
 - optionally a Bluetooth keyboard and a speaker.
@@ -79,7 +83,12 @@ You need a Hermes you already run, reachable over [Tailscale](https://tailscale.
    display stands, run the installer again with `--rotate 270`; `--rotate 0` keeps it portrait.
 
    A coding agent can do this for you with [prompts/setup-device.md](prompts/setup-device.md).
-4. **On the screen**, type your Hermes address and sign in. That's all.
+4. **On the screen**, type your Hermes address and sign in. A bare name is enough: the desk works
+   out `https://` or `http://...:9119` itself and tells you what it found. Or tap
+   **Use your phone instead**, scan the QR code and type the details on your phone. That's all.
+
+Without Tailscale, install with `--no-tailscale`. The desk warns you if an address would send
+your password across the internet unencrypted.
 
 To build a bundle yourself: `make bundle` (needs Node 20+ and Python 3.11+).
 

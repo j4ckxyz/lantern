@@ -3,6 +3,7 @@ import {
   DEFAULT_SETTINGS,
   type LinkState,
   type Message,
+  type Pairing,
   type Profile,
   type Prompt,
   type ServerEvent,
@@ -45,6 +46,7 @@ export interface AppState {
   dev: boolean
   notices: Notice[]
   speech: { id: string; messageId: string } | null
+  pairing: Pairing | null
 }
 
 export const initialState: AppState = {
@@ -67,6 +69,7 @@ export const initialState: AppState = {
   dev: false,
   notices: [],
   speech: null,
+  pairing: null,
 }
 
 let noticeKey = 0
@@ -100,7 +103,10 @@ export function reduce(state: AppState, event: ServerEvent, now = Date.now()): A
         prompt: event.prompt,
         settings: { ...DEFAULT_SETTINGS, ...(event.settings || {}) },
         dev: !!event.dev,
+        pairing: event.pairing || null,
       }
+    case 'pair':
+      return { ...state, pairing: event.pairing }
     case 'link':
       return {
         ...state,
@@ -166,6 +172,7 @@ export function reduce(state: AppState, event: ServerEvent, now = Date.now()): A
     case 'settings':
       return { ...state, settings: { ...state.settings, ...event.settings } }
     case 'speech.start':
+    case 'speech.clip':
       return { ...state, speech: { id: event.id, messageId: event.message_id } }
     case 'speech.end':
       return state.speech && state.speech.id === event.id ? { ...state, speech: null } : state

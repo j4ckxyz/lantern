@@ -66,6 +66,16 @@ export function PacedText({ text, pacer, onDone }: { text: string; pacer: Pacer;
   return <Markdown text={shown} streaming={shown.length < text.length} />
 }
 
+export function Thinking() {
+  return (
+    <span class="thinking" aria-hidden="true">
+      <i />
+      <i />
+      <i />
+    </span>
+  )
+}
+
 function toolLabel(t: Tool): string {
   return t.label || t.name.replace(/[_.]/g, ' ')
 }
@@ -77,11 +87,14 @@ export function Activity({ turn, waiting = false }: { turn: Turn; waiting?: bool
     : // The chips name each tool; the line says what is happening overall, never the same words twice.
       turn.status || (running.length ? 'Working' : turn.text ? '' : 'Thinking')
   const tools = turn.tools.slice(-4)
+  // Before the first words and between tools, a soft wave says Hermes is thinking. Its reasoning
+  // itself is never shown.
+  const thinking = !waiting && !running.length && !turn.text
   return (
     <div class="activity">
       {status ? (
         <div class="activity-status">
-          <span class={waiting ? 'pulse held' : 'pulse'} />
+          {thinking ? <Thinking /> : <span class={waiting ? 'pulse held' : 'pulse'} />}
           <span>{status}</span>
         </div>
       ) : null}

@@ -25,10 +25,16 @@ main chat was only read.
 | Compaction (`session.compress`) | Works on a side chat |
 | Deleting a session | `session.delete` over the WebSocket works; `DELETE /api/sessions/{id}` answers 409 `client_upgrade_required` |
 
+Checked against Hermes v0.22.5's source (tag `v0.22.5`, commit `bf0203a7`), not run live: the
+slash-command calls (`commands.catalog`, `slash.exec`, `command.dispatch`), the
+session-authority fixes, `approval.settled`, the speech fallback and `thinking.delta`.
+
 Not yet run live:
 - Approvals and questions from the agent.
 - Media the agent sends (`MEDIA:` tags) and link previews of real pages.
 - Opening the main chat from the desk.
+- Slash commands against a real Hermes, and a session-authority socket at all.
+- Setting up from a real phone over a real home network.
 - Whether a `platform_hints.lantern` entry shapes replies there (milestone 0, needs the hint added to
   your `config.yaml` first).
 
@@ -36,27 +42,37 @@ Not yet run live:
 
 Linux (x86_64), Python 3.12, Node 22, against `lantern fakehermes`:
 
-- The Python suite: 45 tests, about 20 s. It covers:
+- The Python suite: 73 tests, about 20 s. It covers:
   - sign-in, refresh and the saved password;
   - every operation in `docs/local-api.md`;
   - re-sent chunks dropped, media served with Range, approvals limited to "once" and "deny";
   - questions, activity from another device, paging, compaction, streaming speech;
   - reconnecting after a drop, and the bridge's token;
-  - a message sent while a chat is being switched lands in the new chat.
+  - a message sent while a chat is being switched lands in the new chat;
+  - addresses as people type them (25 cases: typos, missing schemes, pasted routes, ports, IPv6,
+    credentials refused) and `setup.check` finding the stand-in Hermes;
+  - slash commands: the catalogue without terminal-only commands, output as a card, a command
+    that expands into a prompt, `/new` only with conversations on;
+  - setting up from a phone: the page, a wrong code refused, the right one (any case or spacing)
+    signing the desk in, and the page closing afterwards.
 - The screen, at scale 2 in Playwright's Chromium, in landscape (640x360 CSS pixels, the panel's
   1280x720 turned, as the desk stands) and portrait (360x640):
   - 31 unit tests: Markdown and sanitising, including XSS payloads; the typing pace; protocol state;
-  - 66 portrait screenshot and flow tests against the UI's own mock, in both themes and three text
-    sizes;
-  - 27 landscape tests: every main screen in both themes and large text, plus checks that the
+  - portrait screenshot and flow tests against the UI's own mock, in both themes and three text
+    sizes, including the keyboard (shortcuts, bringing back your last message, focus staying in
+    sheets, an approval focusing Deny), the mouse (the pointer showing and hiding), the command
+    palette, simple mode, address checking and setting up from a phone;
+  - landscape tests: every main screen in both themes and large text (the thinking animation, the
+    command palette and the phone setup included), plus checks that the
     panel lists the tools once, that an approval replaces the message box and moves Stop to the
     panel, that sign-in fits without scrolling, and that turning the screen swaps the panel for
     the top bar;
   - screenshots compare colours tightly (`threshold: 0.05`), so a change between navy and true
     black is caught;
-  - 6 tests of the built UI against the real service and the stand-in Hermes. They cover the main
+  - 7 tests of the built UI against the real service and the stand-in Hermes. They cover the main
     chat with its avatar, streaming with tool chips, pictures, audio and files from `MEDIA:` tags,
-    an approval, a new chat getting its title, and reading aloud.
+    an approval, a new chat getting its title, slash commands, and reading aloud.
+  - 106 Playwright tests against the mock in all, stable over repeated runs.
 - A release bundle built with `device/build-bundle.sh` (580 KB). Its checksums verify, and the wheel
   installs into a clean virtualenv. The UI packaged inside it is served with the token check.
 - `device/install.sh`'s edits to `config.txt` and `cmdline.txt`, run twice on copies of Raspberry Pi

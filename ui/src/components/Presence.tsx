@@ -7,6 +7,7 @@ import type { AppState } from '../protocol/state'
 import type { Tool } from '../protocol/types'
 import { client, overlays, run } from '../ui'
 import { Avatar } from './Avatar'
+import { Thinking } from './Live'
 
 function useNow(every: number, on = true): number {
   const [now, setNow] = useState(Date.now())
@@ -38,29 +39,48 @@ export function Presence({ s }: { s: AppState }) {
   const title = view ? (view.kind === 'main' ? 'Main chat' : view.title || 'New chat') : ''
   const m = mood(s)
   const ready = s.link === 'ready'
+  const full = s.settings.conversations
+  const who = (
+    <>
+      <span class="p-avatar">{profile ? <Avatar profile={profile} size={48} /> : null}</span>
+      <span class="p-names">
+        <span class="p-name">
+          <span>{name}</span>
+          {full ? <Chevron size={15} /> : null}
+        </span>
+        {title && full ? <span class="p-title">{title}</span> : null}
+      </span>
+    </>
+  )
   return (
     <aside class={`presence ${m}`}>
-      <button class="p-who" onClick={() => overlays.open({ kind: 'profiles' })} aria-label={`${name}, ${title}. Switch profile or conversation`}>
-        <span class="p-avatar">{profile ? <Avatar profile={profile} size={48} /> : null}</span>
-        <span class="p-names">
-          <span class="p-name">
-            <span>{name}</span>
-            <Chevron size={15} />
-          </span>
-          {title ? <span class="p-title">{title}</span> : null}
-        </span>
-      </button>
+      {full ? (
+        <button class="p-who" onClick={() => overlays.open({ kind: 'profiles' })} aria-label={`${name}, ${title}. Switch profile or conversation`} title="Profiles and conversations">
+          {who}
+        </button>
+      ) : (
+        <div class="p-who">{who}</div>
+      )}
       <div class="p-state">
         <State s={s} m={m} />
       </div>
       <div class="p-actions">
-        <button class="p-act" disabled={!ready} onClick={() => void run('chat.new', {})}>
-          <Compose size={18} />
-          <span>New chat</span>
-        </button>
-        <button class="p-act" onClick={() => overlays.open({ kind: 'menu' })} aria-label="More">
-          <More size={18} />
-        </button>
+        {full ? (
+          <button class="p-act" disabled={!ready} onClick={() => void run('chat.new', {})} title="New chat (Ctrl+N)">
+            <Compose size={18} />
+            <span>New chat</span>
+          </button>
+        ) : null}
+        {full ? (
+          <button class="p-act" onClick={() => overlays.open({ kind: 'menu' })} aria-label="More" title="More">
+            <More size={18} />
+          </button>
+        ) : (
+          <button class="p-act" onClick={() => overlays.open({ kind: 'menu' })} aria-label="More">
+            <More size={18} />
+            <span>Menu</span>
+          </button>
+        )}
       </div>
     </aside>
   )
@@ -93,7 +113,7 @@ function State({ s, m }: { s: AppState; m: Mood }) {
     return (
       <div class="p-work" role="status" aria-live="polite">
         <div class="p-status">
-          <span class={s.prompt ? 'pulse held' : 'pulse'} />
+          {!s.prompt && !running.length && !s.turn.text ? <Thinking /> : <span class={s.prompt ? 'pulse held' : 'pulse'} />}
           <span>{status}</span>
         </div>
         {tools.length ? (

@@ -11,12 +11,14 @@ import { App } from './app'
 import { speech } from './audio/speech'
 import { Client, socketUrl } from './protocol/client'
 import { setClient } from './ui'
+import { trackInput } from './input'
 
 const client = new Client({
   url: socketUrl(),
   onAudio: (pcm) => speech.push(pcm),
   onEvent: (e) => {
     if (e.type === 'speech.start') speech.start(e.sample_rate)
+    else if (e.type === 'speech.clip') speech.playClip(e.url)
     else if (e.type === 'speech.end') {
       if (e.reason === 'done') speech.end()
       else speech.stop()
@@ -24,6 +26,7 @@ const client = new Client({
   },
 })
 setClient(client)
+trackInput()
 // The page never leaves: no navigation, no context menu, no pinch-zoom of the whole UI.
 window.addEventListener('contextmenu', (e) => e.preventDefault())
 document.addEventListener('gesturestart', (e) => e.preventDefault())

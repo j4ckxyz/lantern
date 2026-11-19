@@ -9,7 +9,7 @@ export default defineConfig({
   workers: 4,
   reporter: [['list']],
   expect: {
-    toHaveScreenshot: { animations: 'disabled', caret: 'hide', maxDiffPixelRatio: 0.002, threshold: 0.05 },
+    toHaveScreenshot: { animations: 'disabled', caret: 'hide', maxDiffPixelRatio: 0.0005, threshold: 0.05 },
   },
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,

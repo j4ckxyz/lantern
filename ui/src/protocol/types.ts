@@ -37,6 +37,16 @@ export interface Message {
   interim?: boolean
   voice?: boolean
   error?: string
+  /** Set on the output of a slash command: the command that produced it. */
+  command?: string
+}
+
+/** A slash command Hermes offers (from `commands.list`). */
+export interface Command {
+  name: string
+  description: string
+  args: 'text' | 'options' | 'mixed' | null
+  options?: string[]
 }
 
 export interface View {
@@ -113,6 +123,7 @@ export interface Settings {
   quiet_end: string
   touch_keyboard: 'auto' | 'always'
   default_profile: string
+  conversations: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -129,6 +140,7 @@ export const DEFAULT_SETTINGS: Settings = {
   quiet_end: '07:00',
   touch_keyboard: 'auto',
   default_profile: 'default',
+  conversations: false,
 }
 
 export interface Hello {
@@ -146,6 +158,17 @@ export interface Hello {
   prompt: Prompt | null
   settings: Partial<Settings>
   dev: boolean
+  pairing?: Pairing | null
+}
+
+/** Setting the desk up from a phone: a one-time page on the local network (`pair.start`). */
+export interface Pairing {
+  state: 'waiting' | 'working' | 'done' | 'failed' | 'stopped'
+  error: string
+  code: string
+  expires_in: number
+  url: string
+  addresses: string[]
 }
 
 export type ServerEvent =
@@ -166,4 +189,6 @@ export type ServerEvent =
   | { type: 'settings'; settings: Partial<Settings> }
   | { type: 'speech.start'; id: string; message_id: string; sample_rate: number }
   | { type: 'speech.end'; id: string; reason: 'done' | 'stopped' | 'error'; error?: string }
+  | { type: 'speech.clip'; id: string; message_id: string; url: string }
+  | { type: 'pair'; pairing: Pairing }
   | { type: 'result'; req: string | null; ok: boolean; error?: string; [key: string]: unknown }

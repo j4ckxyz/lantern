@@ -98,7 +98,7 @@ for (const theme of ['dark', 'light'] as const) {
     })
 
     test('profiles sheet', async ({ page }) => {
-      await openChat(page, { theme })
+      await openChat(page, { theme, conversations: true })
       await page.locator('.who').click()
       await expect(page.getByRole('dialog', { name: 'Profiles and conversations' })).toBeVisible()
       await page.waitForTimeout(400)
@@ -106,7 +106,7 @@ for (const theme of ['dark', 'light'] as const) {
     })
 
     test('conversations', async ({ page }) => {
-      await openChat(page, { theme })
+      await openChat(page, { theme, conversations: true })
       await page.locator('.who').click()
       await page.getByRole('button', { name: 'Conversations' }).first().click()
       await expect(page.getByText('Weekend walking route')).toBeVisible()
@@ -117,7 +117,7 @@ for (const theme of ['dark', 'light'] as const) {
     test('menu', async ({ page }) => {
       await openChat(page, { theme })
       await page.getByRole('button', { name: 'More' }).click()
-      await expect(page.getByText('Compact this chat')).toBeVisible()
+      await expect(page.getByText('Read replies aloud')).toBeVisible()
       await page.waitForTimeout(400)
       await expect(page).toHaveScreenshot(`menu-${theme}.png`)
     })
@@ -149,7 +149,7 @@ for (const theme of ['dark', 'light'] as const) {
     })
 
     test('new chat', async ({ page }) => {
-      await openChat(page, { theme })
+      await openChat(page, { theme, conversations: true })
       await page.getByRole('button', { name: 'New chat' }).click()
       await expect(page.getByText('New chat about the desk')).toBeVisible()
       await expect(page).toHaveScreenshot(`new-chat-${theme}.png`)
